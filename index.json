@@ -1,0 +1,142 @@
+{
+  "format": 1,
+  "title": {
+    "zh": "Sablierj 的 DSH 插件",
+    "en": "Sablierj DSH Plugins"
+  },
+  "description": {
+    "zh": "自有 DSH 插件：BOSS 直聘招聘流水线、企业邮箱简历自动下载。",
+    "en": "Personal DSH plugins: a BOSS Zhipin recruiting pipeline and an enterprise-mailbox resume downloader."
+  },
+  "metadata": {
+    "categories": {
+      "recruitment": {
+        "title": {
+          "zh": "招聘",
+          "en": "Recruitment"
+        }
+      },
+      "email": {
+        "title": {
+          "zh": "邮件与简历",
+          "en": "Email & Resumes"
+        }
+      }
+    },
+    "labels": {
+      "web-ui": {
+        "title": {
+          "zh": "带工作台页面",
+          "en": "Web UI"
+        }
+      },
+      "local-data": {
+        "title": {
+          "zh": "数据只存本机",
+          "en": "Local data only"
+        }
+      }
+    },
+    "sortKeys": {
+      "updated": {
+        "title": {
+          "zh": "最近更新",
+          "en": "Last update"
+        },
+        "order": "desc"
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "@local/dsh-plugin-boss-recruit",
+      "title": {
+        "zh": "招聘流水线（BOSS 直聘）",
+        "en": "Recruiting Pipeline (BOSS Zhipin)"
+      },
+      "description": {
+        "zh": "按岗位隔离的候选人台账、判定口径、六步话术与双评分；推荐页读简历打分、沟通页按话术推进。",
+        "en": "Per-job candidate ledger, screening rules, six-step reply playbook and dual scoring for BOSS Zhipin."
+      },
+      "icon": "plugins/boss-recruit/icon.svg",
+      "repository": {
+        "url": "https://github.com/Sablierj/dsh-plugins-market",
+        "directory": "plugins/boss-recruit"
+      },
+      "metadata": {
+        "category": "recruitment",
+        "keywords": [
+          "招聘",
+          "BOSS直聘",
+          "候选人",
+          "recruiting",
+          "pipeline"
+        ],
+        "labels": [
+          "web-ui",
+          "local-data"
+        ],
+        "sortKeys": {
+          "updated": 1793019265
+        }
+      },
+      "versions": [
+        {
+          "version": "2.22.0",
+          "publishTimestamp": 1793019265,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "597c27f4b9d065d8e0284d9bb4b3879d6dc75b1f",
+            "path": "plugins/boss-recruit"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@local/dsh-plugin-mail-resume",
+      "title": {
+        "zh": "企业邮箱简历下载",
+        "en": "Mail Resume Downloader"
+      },
+      "description": {
+        "zh": "从已登录的企业邮箱里捞出 BOSS 直聘简历邮件，把近 N 天附件一键存到本机下载目录，按 mailid 去重记台账。",
+        "en": "Pull BOSS Zhipin resume mails from an already-logged-in enterprise mailbox and save recent attachments locally, deduped by mail id."
+      },
+      "icon": "plugins/mail-resume/icon.svg",
+      "repository": {
+        "url": "https://github.com/Sablierj/dsh-plugins-market",
+        "directory": "plugins/mail-resume"
+      },
+      "metadata": {
+        "category": "email",
+        "keywords": [
+          "简历",
+          "邮箱",
+          "附件",
+          "resume",
+          "exmail"
+        ],
+        "labels": [
+          "web-ui",
+          "local-data"
+        ],
+        "sortKeys": {
+          "updated": 1793019265
+        }
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1793019265,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "597c27f4b9d065d8e0284d9bb4b3879d6dc75b1f",
+            "path": "plugins/mail-resume"
+          }
+        }
+      ]
+    }
+  ]
+}
