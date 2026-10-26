@@ -1,0 +1,106 @@
+{
+  "$comment": "插件市场索引的唯一元数据来源。scripts/market/build.mjs 据此生成 index.json；改标题/分类/关键词只改这里。path 是插件目录（相对本仓库根）。",
+  "title": {
+    "zh": "Sablierj 的 DSH 插件",
+    "en": "Sablierj DSH Plugins"
+  },
+  "description": {
+    "zh": "自有 DSH 插件：BOSS 直聘招聘流水线、企业邮箱简历自动下载。",
+    "en": "Personal DSH plugins: a BOSS Zhipin recruiting pipeline and an enterprise-mailbox resume downloader."
+  },
+  "source": {
+    "type": "git",
+    "url": "https://github.com/Sablierj/dsh-plugins-market"
+  },
+  "metadata": {
+    "categories": {
+      "recruitment": {
+        "title": {
+          "zh": "招聘",
+          "en": "Recruitment"
+        }
+      },
+      "email": {
+        "title": {
+          "zh": "邮件与简历",
+          "en": "Email & Resumes"
+        }
+      }
+    },
+    "labels": {
+      "web-ui": {
+        "title": {
+          "zh": "带工作台页面",
+          "en": "Web UI"
+        }
+      },
+      "local-data": {
+        "title": {
+          "zh": "数据只存本机",
+          "en": "Local data only"
+        }
+      }
+    },
+    "sortKeys": {
+      "updated": {
+        "title": {
+          "zh": "最近更新",
+          "en": "Last update"
+        },
+        "order": "desc"
+      }
+    }
+  },
+  "plugins": [
+    {
+      "path": "plugins/boss-recruit",
+      "title": {
+        "zh": "招聘流水线（BOSS 直聘）",
+        "en": "Recruiting Pipeline (BOSS Zhipin)"
+      },
+      "description": {
+        "zh": "按岗位隔离的候选人台账、判定口径、六步话术与双评分；推荐页读简历打分、沟通页按话术推进。",
+        "en": "Per-job candidate ledger, screening rules, six-step reply playbook and dual scoring for BOSS Zhipin."
+      },
+      "category": "recruitment",
+      "labels": [
+        "web-ui",
+        "local-data"
+      ],
+      "keywords": [
+        "招聘",
+        "BOSS直聘",
+        "候选人",
+        "recruiting",
+        "pipeline"
+      ],
+      "icon": "plugins/boss-recruit/icon.svg",
+      "author": "Sablierj"
+    },
+    {
+      "path": "plugins/mail-resume",
+      "title": {
+        "zh": "企业邮箱简历下载",
+        "en": "Mail Resume Downloader"
+      },
+      "description": {
+        "zh": "从已登录的企业邮箱里捞出 BOSS 直聘简历邮件，把近 N 天附件一键存到本机下载目录，按 mailid 去重记台账。",
+        "en": "Pull BOSS Zhipin resume mails from an already-logged-in enterprise mailbox and save recent attachments locally, deduped by mail id."
+      },
+      "category": "email",
+      "labels": [
+        "web-ui",
+        "local-data"
+      ],
+      "keywords": [
+        "简历",
+        "邮箱",
+        "附件",
+        "resume",
+        "exmail"
+      ],
+      "icon": "plugins/mail-resume/icon.svg",
+      "author": "Sablierj"
+    }
+  ]
+}

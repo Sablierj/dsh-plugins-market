@@ -1,0 +1,3 @@
+- insert:
+    - id: mail-resume
+      name: '@local/dsh-plugin-mail-resume'

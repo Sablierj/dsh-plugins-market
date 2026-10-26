@@ -1,0 +1,5 @@
+*.bak
+*.bak-*
+*.local.json
+data/
+pipeline*.json
