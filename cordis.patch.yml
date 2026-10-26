@@ -1,0 +1,3 @@
+- insert:
+    - id: boss-recruit
+      name: '@local/dsh-plugin-boss-recruit'
