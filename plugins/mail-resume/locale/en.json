@@ -1,6 +1,0 @@
-{
-  "meta": {
-    "title": "Resume Mail Downloader",
-    "description": "Pulls BOSS Zhipin resume mails out of the enterprise mailbox and saves the attachments from the last N days that were not downloaded yet into the local download folder, with a de-duplicating ledger."
-  }
-}

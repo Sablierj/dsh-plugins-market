@@ -2,14 +2,16 @@
 /**
  * 生成 DSH 插件市场索引 index.json（format 1）。
  *
- *   node scripts/market/build.mjs                 # 在本仓库生成 / 覆盖根目录 index.json
- *   node scripts/market/build.mjs --root <dir>    # 在另一个树（发布仓）里生成
+ *   node scripts/market/build.mjs --state state.json --out index.json [--url <索引 URL>]
  *
- * 每个版本的 `source.commit` 取「最后一次改动该插件目录的提交」——
- * 这样索引指向的提交里**一定**有这一版代码；索引自身随后再提交一次即可。
- * 因此**代码没提交就不要生成索引**：脚本会发现 package.json 的版本与提交里的不一致并拒绝。
+ * 事实与展示分家：**每个插件的 name / version / commit / 时间戳来自 `--state`**
+ * （由 publish.mjs 在发布仓里实测得到），标题/分类/关键词/图标来自 `market.config.json`。
+ * 这样索引里的 commit 一定是「发布仓里真有这一版」的那个提交，不会指向别处。
+ *
+ * 为什么 source 不带 `path`：pnpm 只认 `#` 后的第一段，`#<sha>&path:/x` 会装成仓库根
+ * （实测 pnpm 12.4.1）。所以每个插件在发布仓里独占一个分支、包就在该分支的根上，
+ * 安装参数是干净的 `git+<url>.git#<sha>`。
  */
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { validateIndex } from './lib-format.mjs';
@@ -24,154 +26,71 @@ const opt = (name, fallback) => {
   return value;
 };
 
-const root = path.resolve(opt('root', process.cwd()));
-const configPath = path.resolve(root, opt('config', 'market.config.json'));
-const outPath = path.resolve(root, opt('out', 'index.json'));
-const allowDirty = flag('allow-dirty');
-const requirePushed = flag('require-pushed');
-
-const problems = [];
-const warnings = [];
-
-function git(args) {
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-}
-
-function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
-}
+const configPath = path.resolve(opt('config', 'market.config.json'));
+const statePath = opt('state', undefined);
+const outPath = path.resolve(opt('out', 'index.json'));
 
 if (!fs.existsSync(configPath)) {
   console.error(`配置不存在：${configPath}`);
   process.exit(2);
 }
-
-const config = readJson(configPath);
-const source = config.source ?? {};
-if (source.type !== 'git' || typeof source.url !== 'string') {
-  console.error('market.config.json 的 source 目前只支持 { "type": "git", "url": "https://github.com/<owner>/<repo>" }');
-  process.exit(2);
-}
-const branch = source.branch ?? 'main';
-const indexUrl = opt(
-  'url',
-  new URL(`${branch}/index.json`, `${source.url.replace(/\/+$/u, '')}/`).href.replace('github.com', 'raw.githubusercontent.com'),
-);
-
-/** 索引 URL 必须是 http(s)、无凭据与 fragment，且直连（DSH 拒绝重定向）。 */
-let indexUrlValid = true;
-try {
-  const parsed = new URL(indexUrl);
-  if (!/^https?:$/u.test(parsed.protocol)) indexUrlValid = false;
-  if (parsed.username || parsed.password || parsed.hash) indexUrlValid = false;
-} catch {
-  indexUrlValid = false;
-}
-if (!indexUrlValid) {
-  console.error(`索引 URL 不合法：${indexUrl}`);
+if (statePath === undefined) {
+  console.error('缺少 --state：索引里每个版本的 name/version/commit 必须来自发布仓（publish.mjs 生成）。');
   process.exit(2);
 }
 
-try {
-  execFileSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: root, stdio: 'ignore' });
-} catch {
-  console.error(`${root} 不是一个 git 仓库 —— build.mjs 必须在仓库里跑：索引里每个版本都要指向一个提交 SHA。`);
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+const base = String(config.source?.base ?? '').replace(/\/+$/u, '');
+if (!/^https:\/\/[^/]+\/[^/]+\/[^/]+$/u.test(base)) {
+  console.error(`market.config.json 的 source.base 必须是 https 仓库 URL，当前是：${base || '(空)'}`);
   process.exit(2);
 }
+const branch = config.source?.branch ?? 'main';
+const indexUrl = opt('url', `https://raw.githubusercontent.com/${base.replace('https://github.com/', '')}/${branch}/index.json`);
 
-const head = git(['rev-parse', 'HEAD']);
-const pluginEntries = [];
-
-if (!indexUrl.startsWith('https://') && !flag('allow-http')) {
-  warnings.push(`索引 URL 不是 https（DSH 允许 http，但另一台机器上请用 https）：${indexUrl}`);
-}
+const byPath = new Map((state.plugins ?? []).map((entry) => [entry.path, entry]));
+const problems = [];
+const warnings = [];
+const plugins = [];
 
 for (const plugin of config.plugins ?? []) {
-  const dir = String(plugin.path ?? '').replace(/^\.\/+/u, '').replace(/\/+$/u, '');
-  if (dir === '') {
-    problems.push('market.config.json 里有一个插件没有 path');
+  const dir = String(plugin.path ?? '').replace(/\/+$/u, '');
+  const fact = byPath.get(dir);
+  if (fact === undefined) {
+    problems.push(`${dir}: --state 里没有它 —— 先跑 publish.mjs 把它推到发布仓`);
     continue;
   }
-  const packageFile = path.join(root, dir, 'package.json');
-  if (!fs.existsSync(packageFile)) {
-    problems.push(`${dir}: 缺少 package.json`);
-    continue;
+  for (const key of ['name', 'version', 'commit']) {
+    if (typeof fact[key] !== 'string' || fact[key] === '') problems.push(`${dir}: state 里的 ${key} 缺失`);
   }
-  const manifest = readJson(packageFile);
-
-  // 能被 install_bundle 挂起来的前提：声明了组合包补丁，且补丁文件真的在。
-  const patch = manifest.dsh?.bundle?.patch;
-  if (typeof patch !== 'string') {
-    problems.push(`${dir}: package.json 没有 dsh.bundle.patch —— 这样装上了也不会被组合进插件树`);
-  } else if (!fs.existsSync(path.join(root, dir, patch))) {
-    problems.push(`${dir}: dsh.bundle.patch 指向的 ${patch} 不存在`);
-  }
-  if (typeof manifest.main === 'string' && !fs.existsSync(path.join(root, dir, manifest.main))) {
-    problems.push(`${dir}: main 指向的 ${manifest.main} 不存在`);
+  if (!/^[0-9a-f]{40}$/u.test(fact.commit ?? '')) problems.push(`${dir}: state 里的 commit 不是 40 位小写 sha`);
+  if (!Number.isInteger(fact.timestamp) || fact.timestamp <= 0) problems.push(`${dir}: state 里的 timestamp 不是正整数秒`);
+  if (fact.branch !== undefined && plugin.branch !== undefined && fact.branch !== plugin.branch) {
+    warnings.push(`${dir}: state 的分支 ${fact.branch} 与配置的 ${plugin.branch} 不一致`);
   }
 
-  // 最后一次改动这个目录的提交 —— 就是这一版代码所在的提交。
-  const log = git(['log', '-1', '--format=%H%n%ct', '--', dir]).split('\n');
-  const commit = log[0];
-  const timestamp = Number(log[1]);
-  if (!/^[0-9a-f]{40}$/u.test(commit ?? '')) {
-    problems.push(`${dir}: 找不到改动该目录的提交（目录可能还没入库）`);
-    continue;
-  }
-
-  // 提交里的版本必须与工作树一致，否则索引会指向一个「还没有这一版」的提交。
-  let committedVersion;
-  try {
-    committedVersion = JSON.parse(git(['show', `${commit}:${dir}/package.json`])).version;
-  } catch {
-    problems.push(`${dir}: 提交 ${commit.slice(0, 7)} 里没有 ${dir}/package.json`);
-    continue;
-  }
-  if (committedVersion !== manifest.version) {
-    problems.push(
-      `${dir}: 工作树版本 ${manifest.version} 与提交 ${commit.slice(0, 7)} 里的 ${committedVersion} 不一致 —— 先 git commit 再生成索引`,
-    );
-  }
-
-  if (!allowDirty) {
-    const dirty = git(['status', '--porcelain', '--', dir]);
-    if (dirty !== '') problems.push(`${dir}: 有未提交改动，索引会指向旧代码\n${dirty.split('\n').map((l) => `    ${l}`).join('\n')}`);
-  }
-
-  if (requirePushed) {
-    try {
-      git(['merge-base', '--is-ancestor', commit, `origin/${branch}`]);
-    } catch {
-      warnings.push(`${dir}: 提交 ${commit.slice(0, 7)} 还没推到 origin/${branch}，别的机器拉不到这一版`);
-    }
-  }
-
-  pluginEntries.push({
-    name: manifest.name,
-    title: plugin.title ?? { en: manifest.name },
-    description: plugin.description ?? { en: manifest.description ?? manifest.name },
+  plugins.push({
+    name: fact.name,
+    title: plugin.title ?? { en: fact.name },
+    description: plugin.description ?? { en: fact.description ?? fact.name },
     ...(plugin.icon === undefined ? {} : { icon: plugin.icon }),
-    ...(plugin.author ?? manifest.author === undefined ? {} : { author: typeof (plugin.author ?? manifest.author) === 'string' ? (plugin.author ?? manifest.author) : undefined }),
-    ...(plugin.homepage ?? manifest.homepage === undefined ? {} : { homepage: plugin.homepage ?? manifest.homepage }),
-    repository: { url: source.url, directory: dir },
+    ...(plugin.author === undefined ? {} : { author: plugin.author }),
+    repository: { url: base },
     metadata: {
       ...(plugin.category === undefined ? {} : { category: plugin.category }),
       keywords: plugin.keywords ?? [],
       labels: plugin.labels ?? [],
-      sortKeys: { updated: timestamp },
+      sortKeys: { updated: fact.timestamp },
     },
     versions: [
       {
-        version: manifest.version,
-        publishTimestamp: timestamp,
-        source: { type: 'git', url: source.url, commit, path: dir },
+        version: fact.version,
+        publishTimestamp: fact.timestamp,
+        source: { type: 'git', url: base, commit: fact.commit },
       },
     ],
   });
-
-  console.log(
-    `${manifest.name}@${manifest.version}  ${dir}  commit=${commit.slice(0, 7)}  ${new Date(timestamp * 1000).toISOString().slice(0, 10)}`,
-  );
 }
 
 const doc = {
@@ -179,26 +98,26 @@ const doc = {
   title: config.title,
   ...(config.description === undefined ? {} : { description: config.description }),
   metadata: config.metadata ?? { categories: {}, labels: {}, sortKeys: {} },
-  plugins: pluginEntries,
+  plugins,
 };
 
-// 先按格式 1 自检，再落盘 —— 宁可不出文件，也不要出一个 DSH 装不下的文件。
 const { errors, warnings: formatWarnings } = validateIndex(doc, indexUrl);
 warnings.push(...formatWarnings);
 problems.push(...errors);
 
-if (warnings.length > 0) {
-  console.warn('\n警告：');
-  for (const warning of warnings) console.warn(`  - ${warning}`);
-}
-
+for (const warning of warnings) console.warn(`警告  ${warning}`);
 if (problems.length > 0) {
-  console.error('\n不能生成索引：');
+  console.error('不能生成索引：');
   for (const problem of problems) console.error(`  - ${problem}`);
   process.exit(1);
 }
 
 fs.writeFileSync(outPath, `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
+for (const plugin of plugins) {
+  console.log(`${plugin.name}@${plugin.versions[0].version}  ${plugin.versions[0].source.commit.slice(0, 7)}  ${new Date(plugin.versions[0].publishTimestamp * 1000).toISOString().slice(0, 10)}`);
+}
 console.log(`\n已写出 ${outPath}`);
 console.log(`索引 URL：${indexUrl}`);
-console.log(`基于提交：${head.slice(0, 7)}（HEAD）`);
+if (!indexUrl.startsWith('https://') && !flag('allow-http')) {
+  console.warn('注意：索引 URL 不是 https，DSH 允许 http，但另一台机器上请用 https。');
+}

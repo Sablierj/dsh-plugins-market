@@ -1,0 +1,20 @@
+{
+  "plugins": [
+    {
+      "path": "boss-recruit",
+      "branch": "pkg/boss-recruit",
+      "name": "@local/dsh-plugin-boss-recruit",
+      "version": "2.22.0",
+      "commit": "32b6545905e6531d862a4652fba2db9ca2b37943",
+      "timestamp": 1793019820
+    },
+    {
+      "path": "mail-resume",
+      "branch": "pkg/mail-resume",
+      "name": "@local/dsh-plugin-mail-resume",
+      "version": "0.1.0",
+      "commit": "ec710fc95f282da2bcba0f9fb51292279264a4ee",
+      "timestamp": 1793019821
+    }
+  ]
+}

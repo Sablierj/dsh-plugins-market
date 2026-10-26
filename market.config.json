@@ -1,5 +1,5 @@
 {
-  "$comment": "插件市场索引的唯一元数据来源。scripts/market/build.mjs 据此生成 index.json；改标题/分类/关键词只改这里。path 是插件目录（相对本仓库根）。",
+  "$comment": "插件市场索引的唯一元数据来源。build.mjs 用 --state 里的事实（每个插件的 name/version/commit）拼索引；展示信息（标题/分类/标签/关键词/图标）从这里取。path 是插件目录；branch 是发布仓里承载这个插件的分支（包在该分支的根上）。",
   "title": {
     "zh": "Sablierj 的 DSH 插件",
     "en": "Sablierj DSH Plugins"
@@ -10,7 +10,7 @@
   },
   "source": {
     "type": "git",
-    "url": "https://github.com/Sablierj/dsh-plugins-market"
+    "base": "https://github.com/Sablierj/dsh-plugins-market"
   },
   "metadata": {
     "categories": {
@@ -53,7 +53,8 @@
   },
   "plugins": [
     {
-      "path": "plugins/boss-recruit",
+      "path": "boss-recruit",
+      "branch": "pkg/boss-recruit",
       "title": {
         "zh": "招聘流水线（BOSS 直聘）",
         "en": "Recruiting Pipeline (BOSS Zhipin)"
@@ -74,11 +75,12 @@
         "recruiting",
         "pipeline"
       ],
-      "icon": "plugins/boss-recruit/icon.svg",
+      "icon": "icons/boss-recruit.svg",
       "author": "Sablierj"
     },
     {
-      "path": "plugins/mail-resume",
+      "path": "mail-resume",
+      "branch": "pkg/mail-resume",
       "title": {
         "zh": "企业邮箱简历下载",
         "en": "Mail Resume Downloader"
@@ -99,7 +101,7 @@
         "resume",
         "exmail"
       ],
-      "icon": "plugins/mail-resume/icon.svg",
+      "icon": "icons/mail-resume.svg",
       "author": "Sablierj"
     }
   ]

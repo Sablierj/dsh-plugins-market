@@ -58,10 +58,10 @@
         "zh": "按岗位隔离的候选人台账、判定口径、六步话术与双评分；推荐页读简历打分、沟通页按话术推进。",
         "en": "Per-job candidate ledger, screening rules, six-step reply playbook and dual scoring for BOSS Zhipin."
       },
-      "icon": "plugins/boss-recruit/icon.svg",
+      "icon": "icons/boss-recruit.svg",
+      "author": "Sablierj",
       "repository": {
-        "url": "https://github.com/Sablierj/dsh-plugins-market",
-        "directory": "plugins/boss-recruit"
+        "url": "https://github.com/Sablierj/dsh-plugins-market"
       },
       "metadata": {
         "category": "recruitment",
@@ -77,18 +77,17 @@
           "local-data"
         ],
         "sortKeys": {
-          "updated": 1793019265
+          "updated": 1793019820
         }
       },
       "versions": [
         {
           "version": "2.22.0",
-          "publishTimestamp": 1793019265,
+          "publishTimestamp": 1793019820,
           "source": {
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
-            "commit": "597c27f4b9d065d8e0284d9bb4b3879d6dc75b1f",
-            "path": "plugins/boss-recruit"
+            "commit": "32b6545905e6531d862a4652fba2db9ca2b37943"
           }
         }
       ]
@@ -103,10 +102,10 @@
         "zh": "从已登录的企业邮箱里捞出 BOSS 直聘简历邮件，把近 N 天附件一键存到本机下载目录，按 mailid 去重记台账。",
         "en": "Pull BOSS Zhipin resume mails from an already-logged-in enterprise mailbox and save recent attachments locally, deduped by mail id."
       },
-      "icon": "plugins/mail-resume/icon.svg",
+      "icon": "icons/mail-resume.svg",
+      "author": "Sablierj",
       "repository": {
-        "url": "https://github.com/Sablierj/dsh-plugins-market",
-        "directory": "plugins/mail-resume"
+        "url": "https://github.com/Sablierj/dsh-plugins-market"
       },
       "metadata": {
         "category": "email",
@@ -122,18 +121,17 @@
           "local-data"
         ],
         "sortKeys": {
-          "updated": 1793019265
+          "updated": 1793019821
         }
       },
       "versions": [
         {
           "version": "0.1.0",
-          "publishTimestamp": 1793019265,
+          "publishTimestamp": 1793019821,
           "source": {
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
-            "commit": "597c27f4b9d065d8e0284d9bb4b3879d6dc75b1f",
-            "path": "plugins/mail-resume"
+            "commit": "ec710fc95f282da2bcba0f9fb51292279264a4ee"
           }
         }
       ]
