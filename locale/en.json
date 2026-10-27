@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Team Model Switch",
+    "description": "Adds a main-session button and agent tool that switch every teammate session to the Lead session's model and reasoning effort."
+  }
+}

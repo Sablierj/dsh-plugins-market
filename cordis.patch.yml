@@ -1,0 +1,3 @@
+- insert:
+    - id: team-model-switch
+      name: '@local/team-model-switch'
