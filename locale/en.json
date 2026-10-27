@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session Model Bridge",
+    "description": "Serves the model a session currently uses as one unified name on a local OpenAI- and Anthropic-compatible endpoint, so other agents can use it."
+  }
+}

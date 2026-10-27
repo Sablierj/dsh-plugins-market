@@ -1,0 +1,14 @@
+# Session Model Bridge — exposes the current session's model on a local endpoint.
+# The plugin reads these values with defaults, so this block is documentation of
+# what can be tuned; every key is optional.
+- insert:
+    - id: session-model-bridge
+      name: '@local/dsh-session-model-bridge'
+      config:
+        host: 127.0.0.1
+        port: 8788
+        modelName: dsh-session
+        autoPublish: true
+        requireToken: true
+        maxTokens: 8192
+        logRequests: true

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "会话模型反代",
+    "description": "把某个会话当前选择的模型用统一模型名反代到本机 OpenAI / Anthropic 兼容端点，供其他 agent（Claude Code、Codex、任意 SDK）使用。"
+  }
+}

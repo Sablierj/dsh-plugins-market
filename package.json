@@ -1,0 +1,25 @@
+{
+  "name": "@local/dsh-session-model-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Session Model Bridge: serve the model a DSH session currently uses as a local OpenAI/Anthropic-compatible endpoint under one unified model name.",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "lib/*.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
