@@ -1,12 +1,12 @@
 {
-  "$comment": "插件市场索引的唯一元数据来源。build.mjs 用 --state 里的事实（每插件的 name/version/commit）拼索引；展示信息（标题/分类/标签/关键词/图标）从这里取。path 是插件目录（本仓一级目录），branch 是发布仓里承载这个插件的分支（包在该分支的根上）。",
+  "$comment": "插件市场索引的唯一元数据来源。build.mjs 用 --state 里的事实（每个插件的 name/version/commit）拼索引；展示信息（标题/分类/标签/关键词/图标）从这里取。path 是插件目录；branch 是发布仓里承载这个插件的分支（包在该分支的根上）。",
   "title": {
     "zh": "Sablierj 的 DSH 插件",
     "en": "Sablierj DSH Plugins"
   },
   "description": {
-    "zh": "自有 DSH 插件：亚马逊运营工作台、BOSS 直聘招聘流水线、企业邮箱简历下载、SearXNG 搜索、自动重启、会话模型反代等。",
-    "en": "Personal DSH plugins: Amazon operations, BOSS Zhipin recruiting, mail resume downloader, SearXNG search, auto restart, session model bridge."
+    "zh": "自有 DSH 插件：BOSS 直聘招聘流水线、企业邮箱简历自动下载。",
+    "en": "Personal DSH plugins: a BOSS Zhipin recruiting pipeline and an enterprise-mailbox resume downloader."
   },
   "source": {
     "type": "git",
@@ -132,7 +132,8 @@
         "pipeline"
       ],
       "icon": "icons/boss-recruit.svg",
-      "author": "Sablierj"
+      "author": "Sablierj",
+      "name": "@local/dsh-plugin-boss-recruit"
     },
     {
       "path": "dsh-restart",
@@ -215,7 +216,7 @@
       },
       "description": {
         "zh": "从已登录的企业邮箱里捞出 BOSS 直聘简历邮件，把近 N 天附件一键存到本机下载目录，按 mailid 去重记台账。",
-        "en": "Pull BOSS Zhipin resume mails from an already-logged-in enterprise mailbox and save recent attachments locally."
+        "en": "Pull BOSS Zhipin resume mails from an already-logged-in enterprise mailbox and save recent attachments locally, deduped by mail id."
       },
       "category": "email",
       "labels": [
@@ -230,7 +231,8 @@
         "exmail"
       ],
       "icon": "icons/mail-resume.svg",
-      "author": "Sablierj"
+      "author": "Sablierj",
+      "name": "@local/dsh-plugin-mail-resume"
     },
     {
       "path": "product-team",

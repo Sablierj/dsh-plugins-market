@@ -5,8 +5,8 @@
     "en": "Sablierj DSH Plugins"
   },
   "description": {
-    "zh": "自有 DSH 插件：亚马逊运营工作台、BOSS 直聘招聘流水线、企业邮箱简历下载、SearXNG 搜索、自动重启、会话模型反代等。",
-    "en": "Personal DSH plugins: Amazon operations, BOSS Zhipin recruiting, mail resume downloader, SearXNG search, auto restart, session model bridge."
+    "zh": "自有 DSH 插件：BOSS 直聘招聘流水线、企业邮箱简历自动下载。",
+    "en": "Personal DSH plugins: a BOSS Zhipin recruiting pipeline and an enterprise-mailbox resume downloader."
   },
   "metadata": {
     "categories": {
@@ -151,26 +151,17 @@
           "local-data"
         ],
         "sortKeys": {
-          "updated": 1793076308
+          "updated": 1793076546
         }
       },
       "versions": [
         {
-          "version": "2.22.0",
-          "publishTimestamp": 1793019820,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/Sablierj/dsh-plugins-market",
-            "commit": "32b6545905e6531d862a4652fba2db9ca2b37943"
-          }
-        },
-        {
           "version": "2.25.0",
-          "publishTimestamp": 1793076308,
+          "publishTimestamp": 1793076546,
           "source": {
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
-            "commit": "0de43d161cafe11d130b0268219adb9e24c016da"
+            "commit": "9da7fe5636eace614753dd238356dacd5860776f"
           }
         }
       ]
@@ -201,7 +192,7 @@
           "local-data"
         ],
         "sortKeys": {
-          "updated": 1793064341
+          "updated": 1793063672
         }
       },
       "versions": [
@@ -212,15 +203,6 @@
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
             "commit": "5d600e380f3b329f4f81ad1db4afa1fae766ccf2"
-          }
-        },
-        {
-          "version": "1.0.1",
-          "publishTimestamp": 1793064341,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/Sablierj/dsh-plugins-market",
-            "commit": "6cdb95ab5ba0b26f9457a73059f01edab7eb3bbf"
           }
         }
       ]
@@ -318,7 +300,7 @@
       },
       "description": {
         "zh": "从已登录的企业邮箱里捞出 BOSS 直聘简历邮件，把近 N 天附件一键存到本机下载目录，按 mailid 去重记台账。",
-        "en": "Pull BOSS Zhipin resume mails from an already-logged-in enterprise mailbox and save recent attachments locally."
+        "en": "Pull BOSS Zhipin resume mails from an already-logged-in enterprise mailbox and save recent attachments locally, deduped by mail id."
       },
       "icon": "icons/mail-resume.svg",
       "author": "Sablierj",
