@@ -1,10 +1,7 @@
 {
   "name": "@local/dsh-plugin-boss-recruit",
-  "version": "2.25.0",
+  "version": "2.22.0",
   "private": true,
-  "scripts": {
-    "test": "node ./test-flow.mjs"
-  },
   "type": "module",
   "description": "BOSS 招聘流水线 v2.9.0：多岗位筛选口径、话术流程、判定/待定/淘汰分类、漏斗统计、匹配度(techFit)与性价比(value)派生评分与可视化面板；v2.2 多岗位管理与岗位×模式联动；v2.3 清除代码内硬编码的真实招聘信息（默认值全部中立化、业务方向词改为可配置的口径字段 starTokens），备注行内可见（截断 + 详细展开）且导出 CSV/markdown 均含备注列",
   "exports": {

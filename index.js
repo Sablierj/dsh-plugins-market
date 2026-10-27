@@ -12,14 +12,14 @@
  *   - 本插件只做判断 / 记录 / 排序 / 给人看的话术，**不自动发送任何消息**
  *   - 所有读写 pipeline.json 都经过 withState()，load-mutate-save 串行，避免并发互相覆盖
  */
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 /** 必须包含 webServer，否则 ctx.webServer 是 undefined，面板路由会被静默跳过 */
 export const inject = ['tools', 'systemPrompt', 'webServer']
 
-const STORE_DIR = process.env.BOSS_RECRUIT_STORE_DIR || join(homedir(), '.dsh-boss-recruit')
+const STORE_DIR = join(homedir(), '.dsh-boss-recruit')
 const STORE_FILE = join(STORE_DIR, 'pipeline.json')
 const API_PATH = '/boss-recruit/api'
 const STATE_VERSION = 3
@@ -462,9 +462,6 @@ function defaultState() {
     blacklist: [],
     screens: [],
     screenIndex: {},
-    chatScope: null,
-    flowContext: null,
-    inbox: {},
   }
 }
 
@@ -571,6 +568,8 @@ function dedupeKeysOf(cand) {
       seen.add(nco)
       out.push(`nc:${name}|${nco}`)
     }
+    if (!cos.length) out.push(`nc:${name}|-`)
+    else out.push(`nc:${name}|-`)
   }
   return out
 }
@@ -586,7 +585,16 @@ function findDuplicate(state, jobId, cand) {
     const theirs = dedupeKeysOf(other)
     if (theirs.some((x) => mine.includes(x))) hits.push({ key: k, cand: other })
   }
-  if (!hits.length) return null
+  if (!hits.length) {
+    // v2.21.1 兜底：同岗位下同名且只有一个 → 视为同一人
+    const name = String(cand.name || "").trim()
+    if (name) {
+      const same = Object.entries(state.candidates || {})
+        .filter(([, o]) => o && o.jobId === jobId && o.bossId !== cand.bossId && String(o.name || "").trim() === name)
+      if (same.length === 1) return { key: same[0][0], cand: same[0][1] }
+    }
+    return null
+  }
   if (hits.length === 1) return hits[0]
   hits.sort((a, b) => {
     const la = (a.cand.dialogLog || []).length
@@ -780,21 +788,6 @@ function migrateCandidate(raw, jobId, bossId) {
     interviewContact: String(c.interviewContact || ''),
     interviewPhone: String(c.interviewPhone || ''),
     status7: String(c.status7 || ''),
-    // v2.23.0：看过即入账的两个字段
-    lastViewAt: String(c.lastViewAt || ''),
-    viewCount: Number.isFinite(Number(c.viewCount)) ? Number(c.viewCount) : 0,
-    sourceTab: String(c.sourceTab || ''),
-    preview: String(c.preview || ''),
-    noReply: Boolean(c.noReply),
-    screenedAt: String(c.screenedAt || ''),
-    screenProjects: String(c.screenProjects || ''),
-    screenDecision: String(c.screenDecision || ''),
-    lease: c.lease && typeof c.lease === 'object' ? {
-      by: String(c.lease.by || ''),
-      until: Number(c.lease.until) || 0,
-      at: String(c.lease.at || ''),
-    } : null,
-    interview: c.interview && typeof c.interview === 'object' ? { ...c.interview } : {},
     skills: Array.isArray(c.skills) ? c.skills.map(String) : [],
     project: String(c.project || ''),
     note: String(c.note || ''),
@@ -940,11 +933,6 @@ function migrate(parsed) {
     candidates,
     counters,
     views,
-    screens: Array.isArray(parsed.screens) ? parsed.screens : [],
-    screenIndex: parsed.screenIndex && typeof parsed.screenIndex === 'object' ? parsed.screenIndex : {},
-    chatScope: parsed.chatScope && typeof parsed.chatScope === 'object' ? parsed.chatScope : null,
-    flowContext: parsed.flowContext && typeof parsed.flowContext === 'object' ? parsed.flowContext : null,
-    inbox: parsed.inbox && typeof parsed.inbox === 'object' ? parsed.inbox : {},
     blacklist: Array.isArray(parsed.blacklist) ? parsed.blacklist : [],
   }
 }
@@ -959,14 +947,11 @@ let snapshot = defaultState()
 let lockChain = Promise.resolve()
 
 async function readDisk() {
-  let text
   try {
-    text = await readFile(STORE_FILE, 'utf8')
-  } catch (error) {
-    if (error && error.code === 'ENOENT') return defaultState()
-    throw error
+    return migrate(JSON.parse(await readFile(STORE_FILE, 'utf8')))
+  } catch {
+    return defaultState()
   }
-  return migrate(JSON.parse(text))
 }
 
 async function ensureState() {
@@ -978,9 +963,7 @@ async function ensureState() {
 
 async function writeDisk(state) {
   await mkdir(STORE_DIR, { recursive: true })
-  const tmp = STORE_FILE + '.tmp'
-  await writeFile(tmp, JSON.stringify(state, null, 2), 'utf8')
-  await rename(tmp, STORE_FILE)
+  await writeFile(STORE_FILE, JSON.stringify(state, null, 2), 'utf8')
   snapshot = state
 }
 
@@ -1631,13 +1614,6 @@ function decorate(candidate) {
       summary: e.summary || '',
     })),
     lastDialog: last ? last.summary || last.text || '' : '',
-    sourceTab: candidate.sourceTab || '',
-    preview: candidate.preview || '',
-    noReply: Boolean(candidate.noReply),
-    screenedAt: candidate.screenedAt || '',
-    lease: candidate.lease || null,
-    lastViewAt: candidate.lastViewAt || '',
-    viewCount: Number(candidate.viewCount) || 0,
     firstSeenAt: candidate.firstSeenAt || '',
     firstSeenAtLocal: fmtLocal(candidate.firstSeenAt),
     greetedAt: candidate.greetedAt || '',
@@ -2446,101 +2422,6 @@ function suggestFor(job, candidate) {
   return { key: text ? key : '', text: text || '' }
 }
 
-
-const FLOW_DEFINITIONS = {
-  recommend: {
-    title: '推荐牛人',
-    mode: 'recruit',
-    steps: ['确认岗位筛选', '列表预览初筛并记录看过', '打开在线简历逐步下滑阅读', 'screen 记录项目证据', '核对节奏后点击打招呼', 'completeGreet 一次性记招呼与台账', '继续下一位'],
-    allowedActions: ['flow', 'pace', 'view', 'screen', 'evaluate', 'completeGreet', 'observe'],
-    forbidden: ['搜索人才库', '热搜联系 Ta', '沟通页回话', '付费工具栏'],
-  },
-  newGreet: {
-    title: '新招呼·未读',
-    mode: 'reply',
-    steps: ['沟通页确认岗位并 chatScope', 'observe 记录当前未读名单', '预览能判定的批量记录，信息不足才打开在线简历', 'screen 后只回当前阶段第一句', 'log 更新同一人的记录'],
-    allowedActions: ['flow', 'chatScope', 'observe', 'view', 'screen', 'evaluate', 'batch', 'log', 'reject'],
-    forbidden: ['给所有人都要简历', '已读会话重复回复', '推荐牛人打招呼', '搜索人才库', '热搜联系 Ta'],
-  },
-  chatting: {
-    title: '沟通中·未读',
-    mode: 'reply',
-    steps: ['沟通页确认岗位并 chatScope', 'observe 只看候选人最后发言的未读会话', '按附件/硬项信息/礼貌收尾/明确拒绝分类', '必要时回当前阶段模板', 'log 更新阶段；无新信息则 noReply 不再重开'],
-    allowedActions: ['flow', 'chatScope', 'observe', 'view', 'screen', 'log', 'upsert', 'reject'],
-    forbidden: ['催促没有新消息的人', '重复回客气话', '主动给面试时间', '承诺答复时间', '索要微信手机号'],
-  },
-  resume: {
-    title: '已获取简历',
-    mode: 'reply',
-    steps: ['确认简历已实际接收', '读取附件并补齐联系方式/学历证据', '核对平台与简历冲突', '资料齐全后等待人工面试安排'],
-    allowedActions: ['flow', 'observe', 'upsert', 'log', 'evaluate'],
-    forbidden: ['未看到附件就标已收简历', '替 HR 定面试', '把缺失字段当作 0 或不符合'],
-  },
-  interview: {
-    title: '邀约面试',
-    mode: 'reply',
-    steps: ['检查简历与沟通已完成', '人工确认时间/地点/方式/联系人', 'interview dryRun 预览邀约', '真实点击发送后登记状态'],
-    allowedActions: ['flow', 'interview', 'log'],
-    forbidden: ['缺时间或联系人就称已约面', '未确认就发送面试邀约', '替候选人承诺出席'],
-  },
-}
-
-function configuredFlow(criteria, track) {
-  const workflows = criteria && criteria.workflows
-  const custom = workflows && Array.isArray(workflows[track]) ? workflows[track] : null
-  if (!custom || !custom.length) return null
-  return custom.map((step, i) => typeof step === 'string'
-    ? step
-    : String((step && (step.action || step.text || step.name)) || `步骤 ${i + 1}`))
-}
-
-function flowOutput(state, jobId, requested) {
-  const job = state.jobs[jobId]
-  if (!job) return { ok: false, error: '岗位不存在' }
-  const context = state.flowContext && state.flowContext.jobId === jobId ? state.flowContext : null
-  const track = requested || (context && context.track) || (state.mode === 'reply' ? 'chatting' : 'recommend')
-  const def = FLOW_DEFINITIONS[track]
-  if (!def) return { ok: false, error: 'track 只支持 recommend / newGreet / chatting / resume / interview' }
-  if (state.mode === 'recruit' && track !== 'recommend') {
-    return { ok: false, error: '当前是招聘模式，只能走推荐牛人；要先 mode(reply) 再处理沟通子流程' }
-  }
-  if (state.mode === 'reply' && track === 'recommend') {
-    return { ok: false, error: '当前是回话模式，不能进推荐牛人打招呼；要先 mode(recruit)' }
-  }
-  if (track === 'interview' && state.mode !== 'reply') {
-    return { ok: false, error: '邀约面试属于回话流程；先 mode(reply)' }
-  }
-  return {
-    ok: true,
-    jobId,
-    track,
-    title: def.title,
-    mode: state.mode,
-    steps: configuredFlow(job.criteria, track) || def.steps,
-    allowedActions: def.allowedActions,
-    configurable: 'config key=workflows value={...} 可调整各子流程步骤文案与顺序；动作层安全校验不可配置关闭。',
-    forbidden: def.forbidden,
-    safety: '真实鼠标键盘逐步操作；不绕过验证码/登录/付费；预览只做初筛，完整简历证据由 screen 保存；任何节奏或作用域校验失败都停止发送。',
-  }
-}
-
-function greetPaceError(state, jobId, today, nowMs) {
-  const job = state.jobs[jobId]
-  const c = job.criteria
-  const count = counterFor(state, jobId, today)
-  const hz = humanizeOf(c)
-  const quota = Math.min(Number(c.greetQuotaPerDay) || 0, Number(hz.dailyHardCap) || Number.MAX_SAFE_INTEGER)
-  if (count.greets >= quota) return `今日已达到安全上限 ${quota} 条，停止打招呼`
-  if (count.restUntil && new Date(count.restUntil).getTime() > nowMs) {
-    return `本轮休息中，到 ${new Date(count.restUntil).toLocaleTimeString()} 后再继续`
-  }
-  if (count.roundGreets >= (c.roundGreetSize || 15)) return '本轮已打满，先回 pace 进入休息，不要连续发'
-  const elapsed = count.lastGreetAt ? (nowMs - new Date(count.lastGreetAt).getTime()) / 1000 : Infinity
-  const minGap = c.greetMinGapSec == null ? 300 : Number(c.greetMinGapSec)
-  if (elapsed < minGap) return `距上一条仅 ${Math.round(elapsed)} 秒，还需等 ${Math.ceil(minGap - elapsed)} 秒；可继续阅读下一份简历`
-  return null
-}
-
 async function runAction(args) {
   const action = String(args.action || '')
   const today = todayKey()
@@ -2810,19 +2691,6 @@ async function runAction(args) {
           : (['interview_scheduled', 'interview_available', 'interview_pending'].indexOf(cand.stage) >= 0
             ? cand.stage
             : 'interview_pending')
-        const missing = []
-        if (!['resume_received', 'interview_pending', 'interview_available', 'interview_scheduled'].includes(cand.stage) || !cand.resumeAt) {
-          missing.push('尚未实际接收简历')
-        }
-        if (nextStage === 'interview_scheduled') {
-          if (!iv.time) missing.push('具体面试时间')
-          if (!iv.location && iv.mode !== 'video' && iv.mode !== 'phone') missing.push('面试地点')
-          if (!iv.contact) missing.push('面试联系人')
-          if (iv.mode === 'video' && !iv.link) missing.push('视频面试链接')
-        }
-        if (missing.length) {
-          return { seq: cand.seq, name: cand.name, ok: false, error: `不能进入面试阶段：${missing.join('、')}；先补齐或人工确认` }
-        }
         const finalStage = dryRun ? (cand.stage || 'new') : nextStage
         const item = {
           seq: cand.seq,
@@ -2847,10 +2715,6 @@ async function runAction(args) {
         return item
       })
       const out = { ok: true, jobId, count: results.length, defaults: interviewDefaults(job), results }
-      const failures = results.filter((item) => item.ok === false)
-      if (failures.length) {
-        return { ok: false, jobId, count: results.length, failures, error: failures.map((item) => `${item.name}：${item.error}`).join('；') }
-      }
       if (dryRun) out.dryRun = true
       return out
     })
@@ -3092,59 +2956,18 @@ async function runAction(args) {
     })
   }
 
-  // v2.23.0：看过即入账——只要看过这个人，就必须在台账里有一行，
-  // 之后用 screen / upsert / log 在这同一行上增量补信息（学历、年限、联系方式、沟通记录）。
   if (action === 'view') {
     const key = dedupKeyOf(args.name, args.company)
     if (!key) return { ok: false, error: '缺少姓名' }
     return withState((state) => {
-      const verdict = String(args.note || args.value || args.summary || '已查看')
-      state.views = state.views || {}
       state.views[key] = {
         name: args.name || '',
         company: args.company || '',
         jobId,
-        verdict,
+        verdict: String(args.note || args.value || args.summary || '已查看'),
         at: nowISO(),
       }
-      const { job } = resolveJob(state, jobId)
-      const bossId = args.bossId || `${String(args.name || '').trim()}|${String(args.company || '-').trim()}`
-      state.candidates = state.candidates || {}
-      const ckey = candKey(jobId, bossId)
-      let cand = state.candidates[ckey]
-      let created = false
-      if (!cand) {
-        job.seqCounter = (Number(job.seqCounter) || 0) + 1
-        cand = migrateCandidate({
-          name: args.name || '',
-          company: args.company || '',
-          stage: 'new',
-          note: '',
-          firstSeenAt: nowISO(),
-        }, jobId, bossId)
-        cand.seq = job.seqCounter
-        state.candidates[ckey] = cand
-        created = true
-      }
-      cand.lastViewAt = nowISO()
-      cand.viewCount = (Number(cand.viewCount) || 0) + 1
-      if (args.sourceTab !== undefined) cand.sourceTab = String(args.sourceTab || '')
-      if (args.preview !== undefined) cand.preview = String(args.preview || '').slice(0, 300)
-      const tag = `看过：${verdict}`
-      if (!String(cand.note || '').includes(verdict)) {
-        cand.note = [String(cand.note || '').trim(), tag].filter(Boolean).join('；')
-      }
-      cand.updatedAt = nowISO()
-      return {
-        ok: true,
-        dedupKey: key,
-        totalViews: Object.keys(state.views).length,
-        bossId,
-        seq: cand.seq,
-        created,
-        stage: cand.stage,
-        note: cand.note,
-      }
+      return { ok: true, dedupKey: key, totalViews: Object.keys(state.views).length }
     })
   }
 
@@ -3229,9 +3052,9 @@ async function runAction(args) {
       } else if (browseDone < browseTarget) {
         step = `先浏览牛人卡片再打招呼（本轮还差 ${browseTarget - browseDone} 张）`
         waitSec = c.browseDwellMinSec || 15
-      } else if (elapsed < (c.greetMinGapSec == null ? 300 : Number(c.greetMinGapSec))) {
+      } else if (elapsed < (c.greetMinGapSec || 300)) {
         step = '还没到点，继续浏览别的简历'
-        waitSec = Math.ceil((c.greetMinGapSec == null ? 300 : Number(c.greetMinGapSec)) - elapsed)
+        waitSec = Math.ceil((c.greetMinGapSec || 300) - elapsed)
       } else {
         step = '可以发下一条招呼了'
       }
@@ -3262,46 +3085,6 @@ async function runAction(args) {
     })
   }
 
-  if (action === 'completeGreet') {
-    const bossId = args.bossId || (args.name ? `${args.name}|${args.company || '-'}` : '')
-    if (!bossId) return { ok: false, error: 'completeGreet 需要 name + company（或 bossId）' }
-    return withState((state) => {
-      if (state.mode === 'reply') return { ok: false, error: '回话模式不记录打招呼；先 mode(recruit)' }
-      const paceError = greetPaceError(state, jobId, today, Date.now())
-      if (paceError) return { ok: false, error: paceError }
-      const gate = requireScreenForGreet(state, jobId, { ...args, bossId })
-      if (gate) return { ok: false, error: gate }
-      const key = candKey(jobId, bossId)
-      const prev = state.candidates[key] || {}
-      const at = nowISO()
-      if (prev.greetedAt) {
-        return { ok: true, jobId, seq: prev.seq || null, bossId, stage: 'greeted', greetedAt: prev.greetedAt, duplicate: true, persisted: true }
-      }
-      const cand = {
-        ...prev,
-        jobId,
-        bossId,
-        name: args.name ?? prev.name ?? '',
-        company: args.company ?? prev.company ?? '',
-        stage: 'greeted',
-        greetedAt: prev.greetedAt || at,
-        updatedAt: at,
-      }
-      state.candidates[key] = cand
-      const count = counterFor(state, jobId, today)
-      count.greets += 1
-      count.roundGreets += 1
-      count.lastGreetAt = at
-      count.browses = 0
-      const c = state.jobs[jobId].criteria
-      const span = Math.max(0, (c.greetMaxGapSec || 720) - (c.greetMinGapSec == null ? 300 : Number(c.greetMinGapSec)))
-      const nextWaitSec = (c.greetMinGapSec == null ? 300 : Number(c.greetMinGapSec)) + Math.round(Math.random() * span)
-      const viewKey = dedupKeyOf(cand.name, cand.company)
-      if (viewKey) state.views[viewKey] = { name: cand.name, company: cand.company, jobId, verdict: '已招呼', at }
-      return { ok: true, jobId, seq: cand.seq || null, bossId, stage: 'greeted', greeted: count.greets, nextWaitSec, persisted: true }
-    })
-  }
-
   if (action === 'markGreet') {
     return withState((state) => {
       const { job } = resolveJob(state, jobId)
@@ -3318,16 +3101,13 @@ async function runAction(args) {
         }
       }
       const times = 1
-      if (state.mode === 'reply') return { ok: false, error: '回话模式不记录打招呼；先 mode(recruit)' }
-      const paceError = greetPaceError(state, jobId, today, Date.now())
-      if (paceError) return { ok: false, error: paceError }
       // v2.10.0：必须先有 screen（看过在线简历）才能记招呼
       const greetGate = requireScreenForGreet(state, jobId, args)
       if (greetGate) return { ok: false, error: greetGate }
       const gapBefore = todayCount.lastGreetAt
         ? (Date.now() - new Date(todayCount.lastGreetAt).getTime()) / 1000
         : Infinity
-      const minGap = c.greetMinGapSec == null ? 300 : Number(c.greetMinGapSec)
+      const minGap = c.greetMinGapSec || 300
       const tooFast = gapBefore < minGap
       const span = Math.max(0, (c.greetMaxGapSec || 720) - minGap)
       const nextWaitSec = minGap + Math.round(Math.random() * span)
@@ -3429,11 +3209,6 @@ async function runAction(args) {
         if (g) return { ok: false, error: g }
       }
       const c = job.criteria
-      if (args.stage === 'greeted' && !state.candidates[candKey(jobId, bossId)]) {
-        if (state.mode === 'reply') return { ok: false, error: '回话模式不记录打招呼；先 mode(recruit)' }
-        const paceError = greetPaceError(state, jobId, today, Date.now())
-        if (paceError) return { ok: false, error: paceError }
-      }
       let key = candKey(jobId, bossId)
       // v2.18.0：同一岗位内按「手机号 / 姓名+最近两家公司」判重，命中就并到老记录，不再新建
       if (args.force !== true) {
@@ -3502,7 +3277,6 @@ async function runAction(args) {
       if (['inbound', 'qualified', 'resume_requested', 'resume_received', 'interview_pending', 'interview_available', 'interview_scheduled'].includes(next.stage) && !next.repliedAt) {
         next.repliedAt = now
       }
-      if (args.noReply !== undefined) next.noReply = Boolean(args.noReply)
       if (['resume_received', 'interview_pending', 'interview_available', 'interview_scheduled'].includes(next.stage) && !next.resumeAt) {
         next.resumeAt = now
       }
@@ -3957,26 +3731,6 @@ async function runAction(args) {
       if (state.screens.length > 800) state.screens = state.screens.slice(-800)
       state.screenIndex = state.screenIndex || {}
       state.screenIndex[bossId] = rec
-      const candidateKey = candKey(jobId, bossId)
-      const existing = state.candidates[candidateKey] || {}
-      const now = nowISO()
-      const merged = {
-        ...existing,
-        jobId,
-        bossId,
-        name: existing.name || rec.name,
-        company: existing.company || rec.company,
-        stage: existing.stage || 'new',
-        screenedAt: rec.at,
-        screenProjects: rec.projects,
-        screenDecision: rec.decision,
-        updatedAt: now,
-      }
-      if (!merged.seq) {
-        job.seqCounter = (Number(job.seqCounter) || 0) + 1
-        merged.seq = job.seqCounter
-      }
-      state.candidates[candidateKey] = merged
       return {
         ok: true,
         jobId,
@@ -4023,12 +3777,12 @@ async function runAction(args) {
       }
       const rows = []
       if (tab === "newGreet") {
-        for (const c of all) if ((c.stage === 'new' || c.stage === 'inbound') && (!c.sourceTab || c.sourceTab === 'newGreet')) {
+        for (const c of all) if (c.stage === 'new' || c.stage === 'inbound') {
           rows.push({ name: c.name, company: c.company || '', stage: c.stage, status7Label: status7Of(c).status7Label,
             action: 'open_and_screen', why: '还没看过在线简历——先点开、逐步下滑看完，再 screen 登记' })
         }
       } else if (tab === "chatting") {
-        for (const c of all) if (['greeted','qualified','resume_requested'].includes(c.stage) && !c.noReply) {
+        for (const c of all) if (['greeted','qualified','resume_requested'].includes(c.stage)) {
           const d = lastDir(c)
           rows.push({ name: c.name, company: c.company || '', stage: c.stage, status7Label: status7Of(c).status7Label,
             lastSpeaker: d === 'out' ? '我' : d === 'in' ? '对方' : '未知',
@@ -4065,8 +3819,7 @@ async function runAction(args) {
         total: rows.length,
         needAction: need,
         leasedOut,
-        queue: rows.slice(0, Math.max(1, Math.min(100, Number(args.limit) || 30))),
-        returned: Math.min(rows.length, Math.max(1, Math.min(100, Number(args.limit) || 30))),
+        queue: rows,
         hint: tab === "newGreet"
           ? '新招呼＝主动来信但我们还没看过的人。先用列表预览把明显不符的（应届/1-2年/跨行/外地）批量 reject 掉，只对剩下的点开在线简历。'
           : tab === "chatting"
@@ -4074,49 +3827,6 @@ async function runAction(args) {
             : '已获取简历＝已点同意接收的人。优先补 fill_contact 的（缺联系方式），其余等人工定档。',
       }
     })
-  }
-
-  if (action === 'observe') {
-    const tab = String(args.tab || '').trim()
-    if (!['newGreet', 'chatting', 'resume', 'recommend'].includes(tab)) {
-      return { ok: false, error: 'observe 需要 tab=newGreet / chatting / resume / recommend' }
-    }
-    if (!Array.isArray(args.batch)) return { ok: false, error: 'observe 需要 batch=[{name,company,preview,unread,lastSpeaker}]，只记录当前页面事实' }
-    if (args.hitEnd === false) return { ok: false, error: '还没确认列表滚到底，不能当作本轮完整队列；继续下滑后再 observe' }
-    return withState((state) => {
-      if (tab !== 'recommend' && state.mode !== 'reply') return { ok: false, error: '沟通子流程需要先 mode(reply)' }
-      if (tab === 'recommend' && state.mode !== 'recruit') return { ok: false, error: '推荐牛人需要先 mode(recruit)' }
-      const seenAt = nowISO()
-      const items = args.batch.map((r) => ({
-        name: String((r && r.name) || '').trim(),
-        company: String((r && r.company) || '').trim(),
-        preview: String((r && r.preview) || '').slice(0, 300),
-        unread: r && r.unread !== false,
-        lastSpeaker: r && ['me', 'them', 'unknown'].includes(r.lastSpeaker) ? r.lastSpeaker : 'unknown',
-      })).filter((r) => r.name)
-      state.inbox[tab] = { jobId, seenAt, items }
-      state.flowContext = { jobId, track: tab, at: seenAt }
-      const counts = { total: items.length, unread: items.filter((r) => r.unread).length, them: items.filter((r) => r.lastSpeaker === 'them').length }
-      return { ok: true, jobId, tab, seenAt, counts, next: tab === 'chatting' ? '只处理候选人最后发言且有新信息的会话；附件要看到后再接收' : tab === 'newGreet' ? '先按预览批量判定，信息不足才打开在线简历' : '按当前子流程处理，不把预览当完整简历' }
-    })
-  }
-
-  if (action === 'flow') {
-    const requested = String(args.track || '').trim()
-    return withState((state) => {
-      const out = flowOutput(state, jobId, requested)
-      if (!out.ok) return out
-      if (requested) state.flowContext = { jobId, track: requested, at: nowISO() }
-      return out
-    })
-  }
-
-  if (action === 'backup-export') {
-    return readState((state) => ({ ok: true, backup: makeBackup(state) }))
-  }
-
-  if (action === 'backup-import') {
-    return withState((state) => importBackup(state, args.backup, args.replace === true))
   }
 
   // v2.22.0：按 stage 批量补字段（用于把历史「已收简历」的接收时间补齐）
@@ -4130,10 +3840,10 @@ async function runAction(args) {
     }
     return withState((state) => {
       const { job } = resolveJob(state, jobId)
-      const keys = Object.keys(state.candidates || {}).filter((k) => state.candidates[k] && state.candidates[k].jobId === jobId)
+      const keys = Object.keys(job.candidates || {})
       const touched = []
       for (const k of keys) {
-        const c = state.candidates[k]
+        const c = job.candidates[k]
         if (!c || c.stage !== stage) continue
         c[field] = value
         touched.push({ seq: c.seq, name: c.name })
@@ -4292,16 +4002,6 @@ async function runAction(args) {
         job.interview = Object.assign(interviewDefaults(job), v)
         return { ok: true, jobId, interview: job.interview }
       }
-      if (['greetMinGapSec', 'greetMaxGapSec', 'greetQuotaPerDay', 'roundGreetSize'].includes(args.key)) {
-        const value = Number(args.value)
-        if (!Number.isFinite(value) || value < 0 || !Number.isInteger(value)) return { ok: false, error: `${args.key} 必须是非负整数` }
-        const next = { ...job.criteria, [args.key]: value }
-        if (next.greetMinGapSec > next.greetMaxGapSec) return { ok: false, error: 'greetMinGapSec 不能大于 greetMaxGapSec' }
-        const cap = Number((humanizeOf(next) || {}).dailyHardCap) || 0
-        if (args.key === 'greetQuotaPerDay' && cap && value > cap) return { ok: false, error: `每日额度不能超过 humanize.dailyHardCap=${cap}` }
-        job.criteria[args.key] = value
-        return { ok: true, jobId, [args.key]: value, gap: { minSec: next.greetMinGapSec, maxSec: next.greetMaxGapSec } }
-      }
       if (args.key && String(args.key).indexOf('interview.') === 0) {
         const f = String(args.key).slice('interview.'.length)
         const allowed = ['location', 'address', 'mode', 'contact', 'phone', 'link', 'extra', 'durationMin']
@@ -4312,18 +4012,6 @@ async function runAction(args) {
         cur[f] = f === 'durationMin' ? (Number(args.value) > 0 ? Number(args.value) : 60) : String(args.value == null ? '' : args.value)
         job.interview = cur
         return { ok: true, jobId, interview: job.interview }
-      }
-      if (args.key === 'workflows') {
-        const value = args.value && typeof args.value === 'object' ? args.value : null
-        if (!value) return { ok: false, error: 'workflows 需要对象，例如 { chatting: [步骤一, 步骤二] }' }
-        const workflows = { ...(job.criteria.workflows || {}) }
-        for (const [track, steps] of Object.entries(value)) {
-          if (!FLOW_DEFINITIONS[track]) return { ok: false, error: `未知子流程：${track}` }
-          if (!Array.isArray(steps) || !steps.length) return { ok: false, error: `${track} 的步骤不能为空` }
-          workflows[track] = steps.map((step) => String(step))
-        }
-        job.criteria.workflows = workflows
-        return { ok: true, jobId, workflows }
       }
       if (args.key === 'highlights') {
         job.highlights = Array.isArray(args.value) ? args.value.map(String) : String(args.value || '').split(/[,，\n]/).map((s) => s.trim()).filter(Boolean)
@@ -4454,211 +4142,12 @@ function buildPanelPayload(state) {
   }
 }
 
-
-const BACKUP_FORMAT = 'boss-recruit-backup'
-const BACKUP_VERSION = 1
-
-function cloneJson(value) {
-  return JSON.parse(JSON.stringify(value))
-}
-
-function backupSummary(state) {
-  return {
-    jobs: Object.keys(state.jobs || {}).length,
-    candidates: Object.keys(state.candidates || {}).length,
-    dialogs: Object.values(state.candidates || {}).reduce((n, c) => n + (Array.isArray(c.dialogLog) ? c.dialogLog.length : 0), 0),
-    screens: Array.isArray(state.screens) ? state.screens.length : 0,
-    counters: Object.keys(state.counters || {}).length,
-    views: Object.keys(state.views || {}).length,
-  }
-}
-
-function makeBackup(state) {
-  // Deep-copy so the download cannot mutate the in-memory ledger.
-  const data = cloneJson(state)
-  return {
-    format: BACKUP_FORMAT,
-    version: BACKUP_VERSION,
-    exportedAt: nowISO(),
-    includes: ['jobs', 'candidates', 'dialogLog', 'screens', 'screenIndex', 'counters', 'views', 'chatScope', 'flowContext', 'inbox', 'sop', 'blacklist'],
-    summary: backupSummary(data),
-    state: data,
-  }
-}
-
-function validateBackup(value) {
-  if (!value || value.format !== BACKUP_FORMAT || value.version !== BACKUP_VERSION) {
-    return '不是本插件的备份包：需要 format=boss-recruit-backup 且 version=1'
-  }
-  if (!value.state || typeof value.state !== 'object' || Array.isArray(value.state)) return '备份包缺少 state'
-  const s = value.state
-  if (!s.jobs || typeof s.jobs !== 'object' || Array.isArray(s.jobs)) return '备份包 jobs 结构无效'
-  if (!s.candidates || typeof s.candidates !== 'object' || Array.isArray(s.candidates)) return '备份包 candidates 结构无效'
-  for (const [id, job] of Object.entries(s.jobs)) {
-    if (!job || typeof job !== 'object' || job.id !== id) return `岗位 ${id} 结构无效`
-  }
-  for (const [key, c] of Object.entries(s.candidates)) {
-    if (!c || typeof c !== 'object' || !c.jobId || !c.bossId) return `候选人 ${key} 缺少岗位或身份`
-    if (candKey(c.jobId, c.bossId) !== key) return `候选人 ${key} 的 key 与身份不一致`
-    if (c.dialogLog !== undefined && !Array.isArray(c.dialogLog)) return `候选人 ${key} 的沟通记录不是数组`
-  }
-  return null
-}
-
-function mergeDialogLogs(a, b) {
-  const out = []
-  const seen = new Set()
-  for (const item of [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]) {
-    if (!item || typeof item !== 'object') continue
-    const key = JSON.stringify([item.at || '', item.dir || '', item.text || '', item.summary || ''])
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(cloneJson(item))
-  }
-  out.sort((x, y) => String(x.at || '').localeCompare(String(y.at || '')))
-  return out
-}
-
-function mergeScreenLists(a, b) {
-  const out = []
-  const seen = new Set()
-  for (const item of [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]) {
-    if (!item || typeof item !== 'object') continue
-    const key = JSON.stringify([item.jobId || '', item.bossId || '', item.at || '', item.projects || ''])
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(cloneJson(item))
-  }
-  out.sort((x, y) => String(x.at || '').localeCompare(String(y.at || '')))
-  return out
-}
-
-function earlier(a, b) {
-  const left = String(a || '')
-  const right = String(b || '')
-  if (!left) return right
-  if (!right) return left
-  return left <= right ? left : right
-}
-
-function mergeBackupStates(current, incoming, replace) {
-  if (replace) return cloneJson(incoming)
-  const out = cloneJson(current)
-  out.jobs = { ...cloneJson(incoming.jobs), ...out.jobs }
-  out.jobModes = { ...cloneJson(incoming.jobModes || {}), ...out.jobModes }
-  out.candidates = { ...out.candidates }
-  const stats = { added: 0, updated: 0, unchanged: 0 }
-  for (const [key, source] of Object.entries(incoming.candidates || {})) {
-    const existing = out.candidates[key]
-    if (!existing) {
-      out.candidates[key] = cloneJson(source)
-      stats.added += 1
-      continue
-    }
-    const merged = { ...cloneJson(source), ...cloneJson(existing) }
-    // Empty values from an older/partial machine must not erase real data.
-    for (const field of ['phone', 'email', 'school', 'company2', 'project', 'screenProjects', 'preview', 'sourceTab']) {
-      if (!existing[field] && source[field]) merged[field] = cloneJson(source[field])
-    }
-    merged.dialogLog = mergeDialogLogs(source.dialogLog, existing.dialogLog)
-    for (const field of ['firstSeenAt', 'greetedAt', 'repliedAt', 'resumeAt']) {
-      merged[field] = earlier(source[field], existing[field])
-    }
-    merged.updatedAt = [source.updatedAt || '', existing.updatedAt || ''].sort().pop()
-    // Only fill unknown identity/screening evidence from the other machine.
-    if (!existing.screenedAt && source.screenedAt) {
-      merged.screenedAt = source.screenedAt
-      merged.screenDecision = source.screenDecision
-    }
-    out.candidates[key] = merged
-    stats.updated += 1
-    if (JSON.stringify(existing) === JSON.stringify(merged)) stats.unchanged += 1
-  }
-  out.counters = { ...cloneJson(incoming.counters || {}), ...out.counters }
-  out.views = { ...cloneJson(incoming.views || {}), ...out.views }
-  out.screens = mergeScreenLists(incoming.screens, out.screens)
-  out.screenIndex = { ...cloneJson(incoming.screenIndex || {}), ...out.screenIndex }
-  out.inbox = { ...cloneJson(incoming.inbox || {}), ...out.inbox }
-  out.blacklist = [...new Set([...(out.blacklist || []), ...(incoming.blacklist || [])])]
-  // Current machine's active job and current chat scope are not silently switched.
-  out.activeJobId = current.activeJobId
-  out.chatScope = current.chatScope || incoming.chatScope || null
-  out.flowContext = current.flowContext || incoming.flowContext || null
-  if (current.sop && incoming.sop) {
-    const local = cloneJson(current.sop)
-    const remote = cloneJson(incoming.sop)
-    local.sections = local.sections || []
-    local.lessons = local.lessons || []
-    local.pending = local.pending || []
-    const sectionIds = new Set(local.sections.map((s) => s.id))
-    for (const section of remote.sections || []) {
-      if (!sectionIds.has(section.id)) local.sections.push(section)
-    }
-    const lessonKeys = new Set(local.lessons.map((l) => l.id || l.text))
-    for (const lesson of remote.lessons || []) {
-      if (!lessonKeys.has(lesson.id || lesson.text)) local.lessons.push(lesson)
-    }
-    const pendingKeys = new Set(local.pending.map((p) => p.id || p.text))
-    for (const pending of remote.pending || []) {
-      if (!pendingKeys.has(pending.id || pending.text)) local.pending.push(pending)
-    }
-    local.updatedAt = [local.updatedAt || '', remote.updatedAt || ''].sort().pop()
-    out.sop = local
-  } else {
-    out.sop = current.sop || incoming.sop
-  }
-  return { state: out, stats }
-}
-
-async function importBackup(state, doc, replace) {
-  const invalid = validateBackup(doc)
-  if (invalid) return { ok: false, error: invalid }
-  const before = cloneJson(state)
-  const backupFile = join(STORE_DIR, `backups/before-import-${Date.now()}.json`)
-  await mkdir(join(STORE_DIR, 'backups'), { recursive: true })
-  await writeFile(backupFile, JSON.stringify({ format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: nowISO(), state: before }, null, 2), 'utf8')
-  const merged = mergeBackupStates(before, doc.state, replace)
-  for (const key of Object.keys(state)) delete state[key]
-  Object.assign(state, migrate(merged.state))
-  return {
-    ok: true,
-    mode: replace ? 'replace' : 'merge',
-    backupFile,
-    before: backupSummary(before),
-    after: backupSummary(state),
-    ...(replace ? { stats: null } : { stats: merged.stats }),
-    note: replace ? '已先备份本机台账，再按备份包替换' : '已先备份本机台账，再按 key 合并；重复沟通记录不重复，本机当前岗位与沟通作用域不切换',
-  }
-}
-
 async function handleApi(req, res) {
   try {
-    if (req.method === 'GET' && String(req.url || '').includes('action=backup-export')) {
-      const doc = await readState((state) => makeBackup(state))
-      const body = JSON.stringify(doc, null, 2)
-      res.writeHead(200, {
-        'content-type': 'application/json; charset=utf-8',
-        'content-disposition': 'attachment; filename="boss-recruit-backup.json"',
-        'cache-control': 'no-store',
-        'content-length': Buffer.byteLength(body),
-      })
-      res.end(body)
-      return
-    }
     if (req.method === 'POST') {
       const body = await readBody(req)
       const action = String(body.action || '')
       let result
-      if (action === 'backup-export') {
-        result = await readState((state) => ({ ok: true, backup: makeBackup(state) }))
-        sendJson(res, 200, result)
-        return
-      }
-      if (action === 'backup-import') {
-        result = await withState((state) => importBackup(state, body.backup, body.replace === true))
-        sendJson(res, result.ok ? 200 : 400, result)
-        return
-      }
       if (action === 'selectJob') {
         result = await withState((state) => {
           if (!state.jobs[body.jobId]) return { ok: false, error: `岗位不存在：${body.jobId}` }
@@ -4850,7 +4339,7 @@ export function apply(ctx) {
             type: 'string',
             enum: [
               'pace', 'upsert', 'batch', 'sweep', 'interview', 'sop', 'list', 'next', 'seen', 'export', 'config',
-              'markGreet', 'markBrowse', 'log', 'checkReply', 'screen', 'chatScope', 'clickPlan', 'readPlan', 'chatTabs', 'nextInbox', 'claim', 'backfill', 'flow', 'observe', 'completeGreet', 'backup-export', 'backup-import', 'jobs', 'selectJob', 'job',
+              'markGreet', 'markBrowse', 'log', 'checkReply', 'screen', 'chatScope', 'clickPlan', 'readPlan', 'chatTabs', 'nextInbox', 'claim', 'backfill', 'jobs', 'selectJob', 'job',
               'createJob', 'deleteJob', 'mode', 'check', 'view', 'star', 'reject', 'stats', 'evaluate',
             ],
             description:
@@ -4867,18 +4356,8 @@ export function apply(ctx) {
               'list=查台账（支持过滤与排序）；next=待办队列；stats=漏斗与淘汰分布；seen=是否已登记；' +
               'export=导出（csv/markdown）；config=改当前岗位口径/话术；markGreet/markBrowse=记计数；pace=节奏与下一步；' +
               'checkReply=回话发出前过边界（text=你要发的话，pass!==true 就不许发）；' +
-              'clickPlan=给控件坐标生成拟人点击动作序列（随机偏移/预移动/停留/后置停顿），照着执行；readPlan=生成「看在线简历逐步往下滑」的动作序列（打开简历后先调它）；chatTabs=声明当前在沟通页哪个 tab 并给出这一屏的处理方式与推荐浏览顺序；nextInbox=按 tab 的真实流转语义，从台账算出「这一屏该处理谁、下一步做什么」，不该动的直接标 wait 省时间；claim=多角色协作租约（take/release/status）；flow=查看/选择当前子流程的固定步骤和允许动作；observe=登记当前页面名单与未读事实（不代替简历阅读）；completeGreet=一次完成节奏校验、招呼计数和台账更新；backfill=按 stage 批量补 resumeAt/interviewAt/greetedAt',
+              'clickPlan=给控件坐标生成拟人点击动作序列（随机偏移/预移动/停留/后置停顿），照着执行；readPlan=生成「看在线简历逐步往下滑」的动作序列（打开简历后先调它）；chatTabs=声明当前在沟通页哪个 tab 并给出这一屏的处理方式与推荐浏览顺序；nextInbox=按 tab 的真实流转语义，从台账算出「这一屏该处理谁、下一步做什么」，不该动的直接标 wait 省时间；claim=多角色协作租约（take/release/status），一台浏览器一个鼠标时靠它串行、防止两个人抢同一个人；backfill=按 stage 批量补 resumeAt/interviewAt/greetedAt',
           },
-          track: { type: 'string', enum: ['recommend', 'newGreet', 'chatting', 'resume', 'interview'], description: 'flow 用：选择本轮唯一子流程' },
-          tab: { type: 'string', enum: ['recommend', 'newGreet', 'chatting', 'resume'], description: 'observe 用：当前页面/子流程' },
-          unread: { type: 'boolean', description: 'observe batch 每项：是否为未读会话' },
-          lastSpeaker: { type: 'string', enum: ['me', 'them', 'unknown'], description: 'observe batch 每项：最后发言方' },
-          sourceTab: { type: 'string', description: 'view 用：候选人在哪个页面看到，区分推荐页浏览与新招呼未读' },
-          preview: { type: 'string', description: 'view 用：页面预览原文，不能代替完整简历' },
-          noReply: { type: 'boolean', description: 'upsert 用：礼貌收尾或无新信息时设 true，后续 nextInbox 不再重复提醒' },
-          backup: { type: 'object', description: 'backup-import 用：A 机器通过 backup-export 得到的完整备份包；含岗位/候选人/沟通/凭据/计数/流程配置' },
-          replace: { type: 'boolean', description: 'backup-import 用：true=先自动备份本机再替换；false（默认）=安全合并，推荐' },
-          limit: { type: 'number', description: 'nextInbox 返回队列上限，默认 30，最大 100' },
           names: { type: 'array', items: { type: 'string' }, description: 'interview 用：批量指定候选人姓名（与 name / filterStage 三选一）' },
           time: { type: 'string', description: 'interview 用：具体面试时间，如 2026-10-23 14:30' },
           window: { type: 'string', description: 'interview 用：候选人给的原始时间窗口，如「周三周四都可以」' },
