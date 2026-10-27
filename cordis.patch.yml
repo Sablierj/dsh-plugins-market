@@ -1,0 +1,65 @@
+# dsh-web-search-searxng — 用 SearXNG 给 DSH 提供 web_search
+#
+# 默认「便携优先」：用 DSH 自带的 Python 跑 SearXNG，不需要 Docker、不需要管理员。
+# 这里的值全部可选；插件按「默认值 ← 本文件 ← 运行时配置」合并。
+# 运行时配置入口（不用重启）：searxng_search { action: "config", set: { ... } }
+# 落盘位置：~/.dsh/dsh-web-search-searxng/config.json
+- insert:
+    - id: dsh-web-search-searxng
+      name: '@local/dsh-web-search-searxng'
+      config:
+        # —— 后端 ——
+        backend: auto             # auto=便携优先 | portable | docker | external
+
+        # —— 连接 ——
+        baseUrl: http://127.0.0.1:8080
+        # SearXNG 首次抓某个引擎要 20s 左右，9s 会把「慢」误判成「挂了」
+        timeoutMs: 25000
+
+        # —— 搜索质量 ——
+        engines: '360so,sogou'    # 国内可达；墙外可留空（=用实例自身配置）
+        categories: general       # general | news | science | it
+        language: zh-CN           # zh-CN | en-US | all
+        safesearch: 1             # 0 关 / 1 中 / 2 严
+        maxResults: 8
+        snippetMaxChars: 220
+        dedupe: true
+        cacheTtlMs: 60000         # 0 = 不缓存
+
+        # —— 代理（Clash）——
+        proxy:
+          enabled: false
+          url: http://127.0.0.1:7890
+          mode: auto              # auto | direct | always
+
+        # —— 兜底 ——
+        fallback:
+          enabled: true           # SearXNG 不可用时抓 Bing HTML，保证搜索不空转
+          provider: bing
+          maxResults: 8
+
+        # —— 工具注册 ——
+        # 实测：注册同名 web_search 不报错，但调用仍被内置的接管，所以统一 searxng_ 前缀
+        registerAlias: true
+
+        # —— 便携运行时（默认后端）——
+        runtime:
+          pythonPath: ''          # 空 = 自动找 DSH 自带 Python
+          sourceUrl: ''           # 空 = 官方 master.zip
+          pipIndex: https://pypi.tuna.tsinghua.edu.cn/simple
+          timeoutMs: 600000       # 首次安装上限（下载 + pip）
+
+        # —— Docker 后端（可选）——
+        service:
+          containerName: dsh-searxng
+          image: searxng/searxng:latest
+          port: 8080              # 只绑 127.0.0.1
+          autoStart: true
+          restartPolicy: unless-stopped
+          engineProxy: false      # 容器内引擎是否也走 proxy.url
+          dataDir: ''             # 空 = ~/.dsh/dsh-web-search-searxng/searxng
+
+# 关掉内置的 DeepSeek 搜索 provider：它的 id 被配置成 `deepseek-official` 且没有 API key，
+# 会让内置 web_search 整条链路直接报错。SearXNG provider 用同一个 id 顶上（见 lib/web-provider.js）。
+- id: web-search-deepseek
+  disabled: true

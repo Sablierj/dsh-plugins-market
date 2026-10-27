@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "SearXNG 搜索",
+    "description": "用自建 SearXNG 给 DSH 提供 web_search：可配引擎/分类/语言、支持 Clash 代理、带环境体检与运行时配置。"
+  }
+}

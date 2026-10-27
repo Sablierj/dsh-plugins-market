@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "SearXNG Search",
+    "description": "SearXNG-backed web search for DSH with engine/category/language knobs, Clash proxy support, an environment doctor and runtime config."
+  }
+}
