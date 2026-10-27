@@ -192,7 +192,7 @@
           "local-data"
         ],
         "sortKeys": {
-          "updated": 1793063672
+          "updated": 1793064341
         }
       },
       "versions": [
@@ -203,6 +203,15 @@
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
             "commit": "5d600e380f3b329f4f81ad1db4afa1fae766ccf2"
+          }
+        },
+        {
+          "version": "1.0.1",
+          "publishTimestamp": 1793064341,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "6cdb95ab5ba0b26f9457a73059f01edab7eb3bbf"
           }
         }
       ]

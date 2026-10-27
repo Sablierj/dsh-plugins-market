@@ -34,14 +34,19 @@
       "path": "dsh-restart",
       "branch": "pkg/dsh-restart",
       "name": "dsh-plugin-restart",
-      "version": "1.0.0",
-      "commit": "5d600e380f3b329f4f81ad1db4afa1fae766ccf2",
-      "timestamp": 1793063672,
+      "version": "1.0.1",
+      "commit": "6cdb95ab5ba0b26f9457a73059f01edab7eb3bbf",
+      "timestamp": 1793064341,
       "versions": [
         {
           "version": "1.0.0",
           "commit": "5d600e380f3b329f4f81ad1db4afa1fae766ccf2",
           "timestamp": 1793063672
+        },
+        {
+          "version": "1.0.1",
+          "commit": "6cdb95ab5ba0b26f9457a73059f01edab7eb3bbf",
+          "timestamp": 1793064341
         }
       ]
     },
