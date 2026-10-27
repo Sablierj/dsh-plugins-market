@@ -1,0 +1,207 @@
+# 产品研发团队 bundle：一个 host 层插入（电脑操作能力）+ 一个 agent preset 声明（编制）。
+#
+# 安装：plugin_manager { action: install_bundle, target: 'C:\Users\win11\dsh-plugins\product-team' }
+#
+# 两条行都刻意用绝对 `file:///` 路径而不是裸包名：app-boot 会把绝对说明符交给
+# pathToFileURL，行因此与 profile 的 bare-module base URL 无关（这是本仓库既有的约定，
+# 见 amazon-ops/cordis.patch.yml 的注释）。
+#
+# @portable-ok-file: 原文件曾写死另一台机器的路径，已全部改为本机 C:\Users\win11\dsh-plugins；
+# `skills` 目录都是作者机器的路径，本机不存在。`name` 必须是绝对说明符，故机器相关；
+# 安装/换机时改这三处 + skills 目录。scripts/check.mjs 会把它们作为 WARN 常驻提示。
+
+# ── 1. 电脑操作能力（host 层：本进程所有会话与子代理都能用） ──────────────────
+#
+# 两份实现都放在本 bundle 内（`plugins/<id>/index.cjs`），不依赖仓库外的文件。
+# 两者都只是把工具注册进 tools 注册表，不提供服务，因此放 host 层没有 isolate 问题。
+#
+# 每个插件模块必须**导出 inject = ['tools']**：Cordis 的 ctx 是受限代理，没声明
+# inject 就访问 ctx.tools 会抛 `cannot get property "tools" without inject`，
+# 该行会整个激活失败（实测踩过，diagnostic 会写 "1 entry did not activate" — 但它
+# **不影响 Host 启动**，只是那个工具没注册上）。
+#
+# 改这两个文件后注意：Cordis 按文件 URL 缓存模块，**改内容不会让已失败的行重新加载**。
+# 要么改路径（新 URL = 新缓存项），要么重启应用；只 toggle bundle 不够。
+- insert:
+    - id: desktop-mouse
+      name: 'file:///C:/Users/win11/dsh-plugins/product-team/plugins/desktop-mouse/index.cjs'
+
+    - id: browser-cdp
+      name: 'file:///C:/Users/win11/dsh-plugins/product-team/plugins/browser-cdp/index.cjs'
+
+# ── 2. 产品研发团队 agent preset ─────────────────────────────────────────────
+#
+# 插件清单以发行版 standard preset 为基线（工具名都在本部署里验证过），只改人设、
+# 加团队技能目录。Agent Teams 的 spawn_teammate / team_task_* 由 desktop profile 的
+# `@deepseek-ai/dsh-experimental-agent-team-profile` 挂在 host 层，preset 无需重复声明
+# （重复注册会因同名工具冲突而让整个 preset 挂载失败）。
+- insert:
+    - id: preset-product-team
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: product-team
+        name: 产品研发团队
+        order: 20
+        description: 8 个角色的完整产品研发编制（产品经理 / 需求研究员 / 架构师 / 全栈开发 / UI 设计 / 用户体验 / 测试 / 亚马逊运营），按软件工程流程与门禁推进，带电脑操作能力（真实鼠标键盘截图 + Chrome CDP）。
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              suffix: Your working directory is the current DSH session workspace.
+              prefix: |-
+                You are a coding agent powered by the {{model}} model, running on the DeepSeek Harness.
+
+                你现在是**产品研发团队的主理人（项目经理 / Tech Lead）**。开工前先加载
+                `product-team-process` 技能：它定义 8 个角色的职责、软件工程流程的 7 个阶段与
+                5 道门禁、每份交付物的落盘位置，以及派活用的任务书模板。角色各自的详细章程在
+                `team-role-*` 技能里，派活时把对应角色章程的要点抄进任务书。
+
+                ## 你的团队（8 个角色）
+
+                产品经理（PM）、需求研究员（Research）、架构师（Architect）、全栈开发（Fullstack）、
+                UI 设计师、用户体验师（UX）、测试工程师（QA）、亚马逊运营（Ops）。
+
+                ## 编制纪律
+
+                1. **先研究、再设计、后动手。** 不确定的事实先查证（读源码 / 跑命令 / 上机实测 / web），
+                   不凭印象下结论。
+                2. **派活走团队任务板。** 用 `team_task_create` 建任务（写清交付物、验收标准、写作用域），
+                   用 `spawn_teammate` 建常驻成员，用 `send_message` 传任务书。每个任务只属于一个成员，
+                   写作用域不重叠。
+                3. **任务书必须自包含。** 成员看不到你的对话：写清背景与环境事实、目标、范围与非目标、
+                   已知事实（确切路径 / 命令 / IP / 数据）、交付物与位置、验收标准、权限与禁止项、回报格式。
+                4. **门禁不放水。** 需求（G1）、设计架构（G2）、发布（G3）三道门禁的通过条件是流程文档里的
+                   清单，逐条打勾才能进入下一阶段。没通过的写清楚缺哪一条。
+                5. **验收归你。** 成员的结论是待验证输入：关键结论自己复核（真跑命令、真看返回、真读日志），
+                   并区分「实测」与「推断」。
+                6. **回报口径**：`verified`（本次实测）/ `documented`（文档记录未复验）/ `stale`（已失效）/
+                   `unverified`（待确认）。结论要短、要具体、要带证据。
+                7. **等待必须有超时**，超时给出明确失败原因，不允许无限挂起。
+
+                ## 电脑操作能力（已开）
+
+                - `desktop_mouse`：真实鼠标 / 键盘 / 截图（`action: screenshot` 存 PNG，再用 `read_image` 看，
+                  可做视觉验收）。动用户桌面之前先说清楚要做什么。
+                - `browser_*`：Chrome DevTools Protocol（默认 127.0.0.1:9333，专用 profile，按需拉起）——
+                  开页、取文本、点击、输入、执行 JS、截图。网页自动化和验收优先用它，比物理鼠标稳。
+                - `pwsh` / `bash` / 文件系统 / `web_search` / `web_fetch` / `present` 都在。
+
+                ## 边界
+
+                破坏性操作（删库、改 profile、装插件、重启服务、对外发布）动手前先取得用户确认；
+                凭据不写进文档、技能或截图，只写位置。
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: command-goal
+            name: '@deepseek-ai/dsh-command-goal'
+          - id: tool-goal
+            name: '@deepseek-ai/dsh-tool-goal'
+          - id: planning
+            name: cordis:group
+            group: true
+            isolate:
+              planMode: true
+            config:
+              - id: plan-mode
+                name: '@deepseek-ai/dsh-plan-mode'
+                config:
+                  section: |
+                    You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+                    Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+                    The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+                    Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+                    Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+                    When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: delegation
+            name: cordis:group
+            group: true
+            isolate:
+              workflowEngine: true
+            config:
+              - id: tool-subagent-control
+                name: '@deepseek-ai/dsh-tool-subagent-control'
+              - id: tool-subagent-list-agents
+                name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+              - id: tool-subagent
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: spawn
+                  toolName: subagent
+                  modelSelectionSettings: true
+                  backgroundMode: continuable
+              - id: tool-subagent-fork
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: fork
+                  toolName: subagent_fork
+                  backgroundMode: continuable
+              - id: workflow-ptc
+                name: '@deepseek-ai/dsh-workflow-ptc'
+                config:
+                  provider: spawn
+              - id: tool-workflow
+                name: '@deepseek-ai/dsh-tool-workflow'
+              - id: tool-ralph
+                name: '@deepseek-ai/dsh-tool-ralph'
+                disabled: true
+                config:
+                  subagentProvider: spawn
+                  maxRounds: 64
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              customSkillDirs:
+                - 'C:\Users\win11\dsh-plugins\product-team\skills'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'

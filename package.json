@@ -1,0 +1,12 @@
+{
+  "name": "@local/dsh-product-team",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "产品研发团队编制：agent preset（8 个角色 + 软件工程流程与门禁）+ 电脑操作能力（桌面鼠标/键盘/截图、Chrome CDP）。",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
