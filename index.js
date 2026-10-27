@@ -1429,7 +1429,7 @@ function evaluate(candidate, criteria) {
   const projectMatched = hitProject.length > 0
   if (c.requireProjectKeyword && !projectMatched) {
     flags.projectBad = true
-    gaps.push('过往项目经历未见匹配项（非游戏客户端 / Unity 相关）')
+    gaps.push(`过往项目经历未见匹配项（岗位要求命中其一：${(c.projectKeywords || []).slice(0, 6).join('、') || '口径未配置 projectKeywords'}）`)
   }
 
   // ---- 加分（只记 hit，不参与 ok 判定）----
@@ -3995,15 +3995,18 @@ async function runAction(args) {
       const { job } = resolveJob(state, jobId)
       const label = String(args.pageJobLabel || '').trim()
       if (!label) return { ok: false, error: 'chatScope 需要 pageJobLabel：沟通页左上角职位下拉里显示的那个名字' }
-      const want = String(job.criteria.jobTitle || job.name || '')
-      const norm = (s) => String(s).replace(/[（）()【】\s]/g, '')
+      // BOSS 线上职位名和插件里的 jobTitle 常常不同（线上只写「测试工程师」，
+      // jobTitle 却带着「（AI / 视频 / 智能体方向）」这种括注）。任一对得上即通过，
+      // 否则只能靠子串侥幸命中，线上改个名就直接拒绝。
+      const norm = (s) => String(s || '').replace(/[（）()【】\s]/g, '')
+      const wantLabels = [job.criteria.jobTitle, job.name].filter(Boolean).map(norm).filter(Boolean)
+      const wantText = String(job.criteria.jobTitle || job.name || '')
       const a = norm(label)
-      const b = norm(want)
-      const hit = a && b && (a.indexOf(b) >= 0 || b.indexOf(a) >= 0)
+      const hit = a && wantLabels.some((b) => a.indexOf(b) >= 0 || b.indexOf(a) >= 0)
       if (!hit) {
         return {
           ok: false,
-          error: `沟通页选的是「${label}」，与当前岗位「${want}」不一致。先切岗位筛选，别张冠李戴` ,
+          error: `沟通页选的是「${label}」，与当前岗位「${wantText}」（${job.name}）不一致。先切岗位筛选，别张冠李戴`,
         }
       }
       state.chatScope = { jobId, label, at: nowISO() }
@@ -4542,7 +4545,10 @@ function earlier(a, b) {
 }
 
 function mergeBackupStates(current, incoming, replace) {
-  if (replace) return cloneJson(incoming)
+  // 两个分支必须返回同一形状 { state, stats }：调用方统一读 merged.state。
+  // 早期在 replace 分支直接返回 cloneJson(incoming)，调用方读 merged.state 得到 undefined，
+  // migrate() 回退成空默认状态 —— 表现为「导入返回 ok 但台账被清空」。
+  if (replace) return { state: cloneJson(incoming), stats: null }
   const out = cloneJson(current)
   out.jobs = { ...cloneJson(incoming.jobs), ...out.jobs }
   out.jobModes = { ...cloneJson(incoming.jobModes || {}), ...out.jobModes }
@@ -4610,14 +4616,62 @@ function mergeBackupStates(current, incoming, replace) {
   return { state: out, stats }
 }
 
+/**
+ * 兼容「面板数据」形态的导入。
+ * GET /boss-recruit/api（不带 action）返回的是展示层数据：jobs / candidates 是数组，
+ * 没有 format / state 外壳。历史上这个响应很容易被当成「完整备份」保存下来，
+ * 再导入就会被 validateBackup 直接拒绝（提示一闪而过，看起来像"没反应"）。
+ * 这里把它转成合法备份包，而不是让用户对着一个能解析的 JSON 干瞪眼。
+ */
+function normalizeBackupInput(doc) {
+  if (!doc || typeof doc !== 'object') return doc
+  if (doc.format === BACKUP_FORMAT && doc.state && typeof doc.state === 'object') return doc
+  const jobsArr = Array.isArray(doc.jobs) ? doc.jobs : null
+  const candsArr = Array.isArray(doc.candidates) ? doc.candidates : null
+  if (!jobsArr || !candsArr) return doc
+  const jobs = {}
+  for (const j of jobsArr) {
+    if (j && typeof j === 'object' && j.id) jobs[j.id] = j
+  }
+  const candidates = {}
+  for (const c of candsArr) {
+    if (!c || typeof c !== 'object' || !c.jobId || !c.bossId) continue
+    candidates[candKey(c.jobId, c.bossId)] = c
+  }
+  return {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    exportedAt: nowISO(),
+    convertedFrom: 'panel-payload',
+    summary: { jobs: Object.keys(jobs).length, candidates: Object.keys(candidates).length },
+    state: {
+      version: STATE_VERSION,
+      activeJobId: doc.activeJobId,
+      mode: doc.mode,
+      jobs,
+      jobModes: doc.jobModes || {},
+      candidates,
+      counters: {},
+      views: {},
+      blacklist: [],
+      screens: [],
+      screenIndex: {},
+      chatScope: null,
+      flowContext: null,
+      inbox: {},
+    },
+  }
+}
+
 async function importBackup(state, doc, replace) {
-  const invalid = validateBackup(doc)
+  const normalized = normalizeBackupInput(doc)
+  const invalid = validateBackup(normalized)
   if (invalid) return { ok: false, error: invalid }
   const before = cloneJson(state)
   const backupFile = join(STORE_DIR, `backups/before-import-${Date.now()}.json`)
   await mkdir(join(STORE_DIR, 'backups'), { recursive: true })
   await writeFile(backupFile, JSON.stringify({ format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: nowISO(), state: before }, null, 2), 'utf8')
-  const merged = mergeBackupStates(before, doc.state, replace)
+  const merged = mergeBackupStates(before, normalized.state, replace)
   for (const key of Object.keys(state)) delete state[key]
   Object.assign(state, migrate(merged.state))
   return {
@@ -4627,6 +4681,7 @@ async function importBackup(state, doc, replace) {
     before: backupSummary(before),
     after: backupSummary(state),
     ...(replace ? { stats: null } : { stats: merged.stats }),
+    ...(normalized.convertedFrom ? { convertedFrom: normalized.convertedFrom, convertedNote: '输入是面板数据（jobs/candidates 数组），已自动转成备份包再导入' } : {}),
     note: replace ? '已先备份本机台账，再按备份包替换' : '已先备份本机台账，再按 key 合并；重复沟通记录不重复，本机当前岗位与沟通作用域不切换',
   }
 }

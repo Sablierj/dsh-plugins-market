@@ -1,12 +1,9 @@
 {
   "name": "@local/dsh-plugin-boss-recruit",
-  "version": "2.25.0",
+  "version": "2.25.1",
   "private": true,
-  "scripts": {
-    "test": "node ./test-flow.mjs"
-  },
   "type": "module",
-  "description": "BOSS 招聘流水线 v2.9.0：多岗位筛选口径、话术流程、判定/待定/淘汰分类、漏斗统计、匹配度(techFit)与性价比(value)派生评分与可视化面板；v2.2 多岗位管理与岗位×模式联动；v2.3 清除代码内硬编码的真实招聘信息（默认值全部中立化、业务方向词改为可配置的口径字段 starTokens），备注行内可见（截断 + 详细展开）且导出 CSV/markdown 均含备注列",
+  "description": "BOSS 招聘流水线 v2.9.0：多岗位筛选口径、话术流程、判定/待定/淘汰分类、漏斗统计、匹配度(techFit)与性价比(value)派生评分与可视化面板；v2.2 多岗位管理与岗位×模式联动；v2.3 清除代码内硬编码的真实招聘信息（默认值全部中立化、业务方向词改为可配置的口径字段 starTokens），备注行内可见（截断 + 详细展开）且导出 CSV/markdown 均含备注列；2.25.1 修复：evaluate 的项目关键词提示改为按岗位口径动态生成（不再写死 Unity 文案）、backup-import 的 replace 分支返回形状与 merge 一致（修复导入后台账被清空）、chatScope 同时比对 jobTitle 与 job.name（线上职位名与口径不一致时可正常放行）、导入自动识别面板数据（jobs/candidates 双数组）并转换为备份包",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
