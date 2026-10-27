@@ -1,0 +1,40 @@
+# Profile patch for dsh-plugin-user-console.
+#
+# Three host-plane rows, all served by this package's single entry module:
+#   vault-console       - the local credentials vault: model tools + a web page
+#   tdai-memory         - the TencentDB Agent Memory bridge over SSH
+#   tdai-memory-inject  - the same bridge with per-turn automatic recall injection
+#
+# `name` is an absolute path: app-boot converts an absolute specifier with
+# pathToFileURL, so the row resolves next to this file wherever the profile
+# installed it. Absolute (not relative) keeps the row independent of the
+# profile's bare-module base URL.
+#
+# @portable-ok-file: 同理（见 amazon-ops/cordis.patch.yml）——`D:\deepseek-harness-h\...`
+# 是作者机器的路径，本机不存在。`name` 必须是绝对说明符，所以路径天生机器相关；
+# 安装/换机时改这三行。scripts/check.mjs 会把它们作为 WARN 常驻提示。
+
+- insert:
+    - id: vault-console
+      name: 'D:\deepseek-harness-h\workspace\dsh-plugins\user-console\index.js'
+      config:
+        plugin: vault
+
+    - id: tdai-memory
+      name: 'D:\deepseek-harness-h\workspace\dsh-plugins\user-console\index.js'
+      config:
+        plugin: memory
+
+    # Automatic injection is its own row so it can be switched off without
+    # losing the memory tools: set `autoInject: false` here (or `disabled: true`)
+    # and the tools keep working while nothing is prefetched or injected.
+    #
+    # `registerTools: false` is required, not optional: tool names are
+    # process-global, so letting this row register `memory_recall`/`memory_save`
+    # a second time fails the whole plugin tree with "already registered".
+    - id: tdai-memory-inject
+      name: 'D:\deepseek-harness-h\workspace\dsh-plugins\user-console\index.js'
+      config:
+        plugin: memory
+        autoInject: true
+        registerTools: false
