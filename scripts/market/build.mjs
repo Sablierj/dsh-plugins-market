@@ -61,14 +61,28 @@ for (const plugin of config.plugins ?? []) {
     problems.push(`${dir}: --state 里没有它 —— 先跑 publish.mjs 把它推到发布仓`);
     continue;
   }
-  for (const key of ['name', 'version', 'commit']) {
-    if (typeof fact[key] !== 'string' || fact[key] === '') problems.push(`${dir}: state 里的 ${key} 缺失`);
+  // 版本历史：优先用 state 里的 versions[]（每项 {version, commit, timestamp}），
+  // 兼容旧格式（单个 version/commit/timestamp）。索引里每一版都带自己的 commit，
+  // 所以旧版本只要 commit 可达（打 tag）就能装回去。
+  const history = Array.isArray(fact.versions) && fact.versions.length > 0
+    ? fact.versions.map((item) => ({ version: item.version, commit: item.commit, timestamp: item.timestamp }))
+    : [{ version: fact.version, commit: fact.commit, timestamp: fact.timestamp }];
+
+  if (typeof fact.name !== 'string' || fact.name === '') problems.push(`${dir}: state 里的 name 缺失`);
+  const seenVersion = new Set();
+  for (const item of history) {
+    if (typeof item.version !== 'string' || item.version === '') problems.push(`${dir}: state 里有版本缺 version`);
+    else if (seenVersion.has(item.version)) problems.push(`${dir}: 版本号重复 ${item.version}`);
+    else seenVersion.add(item.version);
+    if (!/^[0-9a-f]{40}$/u.test(item.commit ?? '')) problems.push(`${dir}: ${item.version} 的 commit 不是 40 位小写 sha`);
+    if (!Number.isInteger(item.timestamp) || item.timestamp <= 0) problems.push(`${dir}: ${item.version} 的 timestamp 不是正整数秒`);
   }
-  if (!/^[0-9a-f]{40}$/u.test(fact.commit ?? '')) problems.push(`${dir}: state 里的 commit 不是 40 位小写 sha`);
-  if (!Number.isInteger(fact.timestamp) || fact.timestamp <= 0) problems.push(`${dir}: state 里的 timestamp 不是正整数秒`);
   if (fact.branch !== undefined && plugin.branch !== undefined && fact.branch !== plugin.branch) {
     warnings.push(`${dir}: state 的分支 ${fact.branch} 与配置的 ${plugin.branch} 不一致`);
   }
+
+  const sortedHistory = [...history].sort((a, b) => a.timestamp - b.timestamp);
+  const latest = sortedHistory[sortedHistory.length - 1];
 
   plugins.push({
     name: fact.name,
@@ -81,15 +95,13 @@ for (const plugin of config.plugins ?? []) {
       ...(plugin.category === undefined ? {} : { category: plugin.category }),
       keywords: plugin.keywords ?? [],
       labels: plugin.labels ?? [],
-      sortKeys: { updated: fact.timestamp },
+      sortKeys: { updated: latest.timestamp },
     },
-    versions: [
-      {
-        version: fact.version,
-        publishTimestamp: fact.timestamp,
-        source: { type: 'git', url: base, commit: fact.commit },
-      },
-    ],
+    versions: sortedHistory.map((item) => ({
+      version: item.version,
+      publishTimestamp: item.timestamp,
+      source: { type: 'git', url: base, commit: item.commit },
+    })),
   });
 }
 
@@ -114,7 +126,9 @@ if (problems.length > 0) {
 
 fs.writeFileSync(outPath, `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
 for (const plugin of plugins) {
-  console.log(`${plugin.name}@${plugin.versions[0].version}  ${plugin.versions[0].source.commit.slice(0, 7)}  ${new Date(plugin.versions[0].publishTimestamp * 1000).toISOString().slice(0, 10)}`);
+  const last = plugin.versions[plugin.versions.length - 1];
+  const extra = plugin.versions.length > 1 ? `  (共 ${plugin.versions.length} 个版本)` : '';
+  console.log(`${plugin.name}@${last.version}  ${last.source.commit.slice(0, 7)}  ${new Date(last.publishTimestamp * 1000).toISOString().slice(0, 10)}${extra}`);
 }
 console.log(`\n已写出 ${outPath}`);
 console.log(`索引 URL：${indexUrl}`);
