@@ -1,0 +1,9 @@
+{
+  "name": "dsh-plugin-restart",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "description": "Restart DSH and continue the current session afterwards",
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}

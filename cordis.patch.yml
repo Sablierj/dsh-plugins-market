@@ -1,0 +1,6 @@
+- insert:
+    - id: dsh-restart
+      name: 'C:\Users\win11\dsh-plugins\dsh-restart\index.js'
+      config:
+        plugin: default
+        resumeTtlMinutes: 10
