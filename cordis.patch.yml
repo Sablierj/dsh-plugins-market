@@ -1,0 +1,28 @@
+# Profile patch for dsh-plugin-amazon-ops.
+#
+# One host-plane row serves everything: the model tools, the workbench page,
+# its JSON API, and the progress event stream. `config.plugin` selects the
+# plane, so more rows can be added later without touching index.js.
+#
+# `name` is a RELATIVE path (`./index.js`), deliberately not an absolute one.
+# app-boot's `anchorInsertedPluginNames()` treats an insert row's `name` that is
+# absolute OR starts with `./` / `../` the same way: it resolves it against the
+# directory of THIS patch file and converts it to a file URL
+# (packages/boot/app-boot/src/index.ts:325-336). A relative name therefore
+# follows the repo to any machine or install location with no per-machine edit;
+# an absolute name only worked on the machine whose path was written here.
+# (It must be `./index.js`, not `index.js`: a bare name would be resolved as a
+# package specifier instead of a path.)
+#
+# Where this file is actually read: `package.json` declares it as the plugin's
+# own bundle patch (`dsh.bundle.patch: ./cordis.patch.yml`), so app-boot loads it
+# when the plugin is installed as a bundle. The running desktop profile also
+# carries an insert row for the same plugin in its own `<profile>/cordis.patch.yml`;
+# that row names this repo by absolute path. Both rows resolve to this repo's
+# `index.js`.
+
+- insert:
+    - id: amazon-ops
+      name: './index.js'
+      config:
+        plugin: workbench
