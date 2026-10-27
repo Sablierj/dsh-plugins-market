@@ -814,6 +814,7 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
       const [ivPreview, setIvPreview] = useState('')
       const [ivMsg, setIvMsg] = useState('')
       const [selected, setSelected] = useState([])
+      const [syncBusy, setSyncBusy] = useState(false)
 
       // 筛选 / 排序
       const [filterStage, setFilterStage] = useState('')
@@ -1315,6 +1316,42 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
           setNotice(`复制失败：${String((e && e.message) || e)}`)
         }
       }, [])
+
+      const exportBackup = useCallback(() => {
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')
+        const a = document.createElement('a')
+        a.href = `${API}?action=backup-export`
+        a.download = `招聘流水线-完整备份-${stamp}.json`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        setNotice('正在下载完整备份：岗位、候选人、沟通记录、凭据、计数与流程配置都会包含')
+      }, [])
+
+      const importBackup = useCallback(async (event) => {
+        const input = event.target
+        const file = input.files && input.files[0]
+        input.value = ''
+        if (!file) return
+        setSyncBusy(true)
+        setSaveError('')
+        try {
+          const text = await file.text()
+          const backup = JSON.parse(text)
+          const summary = backup && backup.summary
+          const okToImport = !window.confirm || window.confirm(
+            `将合并导入这份备份：${summary ? `${summary.jobs} 个岗位、${summary.candidates} 位候选人、${summary.dialogs} 条沟通记录。` : ''}\n` +
+            '会先自动备份本机台账，再按岗位+候选人 key 合并；不会上传远端。继续吗？',
+          )
+          if (!okToImport) return
+          const res = await post({ action: 'backup-import', backup, replace: false })
+          setNotice(`备份合并完成：新增 ${res.stats.added} 人，更新 ${res.stats.updated} 人；本机原台账已自动备份到 ${res.backupFile}`)
+        } catch (e) {
+          setSaveError(`导入失败：${String((e && e.message) || e)}；未导入的文件不是有效备份包或内容不完整`)
+        } finally {
+          setSyncBusy(false)
+        }
+      }, [post])
 
       const exportAs = useCallback((format) => {
         // v2.2：跨岗位视图多导出「岗位」列
@@ -1835,6 +1872,14 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
         }, SORT_OPTIONS.map(([key, label]) => h('option', { key, value: key }, `排序：${label}`))),
         button(order === 'asc' ? '↑ 升序' : '↓ 降序', () => setOrder((o) => (o === 'asc' ? 'desc' : 'asc')), false, false, 'order'),
         h('div', { style: { flex: 1 } }),
+        button(syncBusy ? '导入中…' : '导入备份', () => {
+          const input = document.createElement('input')
+          input.type = 'file'
+          input.accept = '.json,application/json'
+          input.onchange = importBackup
+          input.click()
+        }, false, syncBusy || busy, 'backup-import', '选择 A 机器导出的完整备份 JSON；先自动备份本机，再按岗位+候选人 key 合并'),
+        button('导出备份', exportBackup, false, false, 'backup-export', '下载完整流水线备份：所有岗位、候选人、沟通记录、凭据、计数、SOP 与流程配置'),
         button('导出 CSV', () => exportAs('csv'), false, rows.length === 0, 'csv'),
         button('导出 Markdown', () => exportAs('markdown'), false, rows.length === 0, 'md'),
       )
