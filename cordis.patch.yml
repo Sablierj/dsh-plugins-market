@@ -1,0 +1,6 @@
+# wechat-session-bind — 会话标题旁的「绑定微信」按钮。
+# 点击后把 dsh-wechat-workbench 的微信指针改指当前会话，并重载 workbench 使其生效。
+- insert:
+    - id: wechat-session-bind
+      name: '@local/wechat-session-bind'
+      config: {}

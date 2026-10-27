@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WeChat Session Bind",
+    "description": "Adds a bind button to the session header; clicking binds WeChat to the current session."
+  }
+}
