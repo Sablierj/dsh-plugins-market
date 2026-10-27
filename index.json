@@ -5,11 +5,17 @@
     "en": "Sablierj DSH Plugins"
   },
   "description": {
-    "zh": "自有 DSH 插件：BOSS 直聘招聘流水线、企业邮箱简历自动下载。",
-    "en": "Personal DSH plugins: a BOSS Zhipin recruiting pipeline and an enterprise-mailbox resume downloader."
+    "zh": "自有 DSH 插件：亚马逊运营工作台、BOSS 直聘招聘流水线、企业邮箱简历下载、SearXNG 搜索、自动重启、会话模型反代等。",
+    "en": "Personal DSH plugins: Amazon operations, BOSS Zhipin recruiting, mail resume downloader, SearXNG search, auto restart, session model bridge."
   },
   "metadata": {
     "categories": {
+      "operations": {
+        "title": {
+          "zh": "亚马逊运营",
+          "en": "Amazon Ops"
+        }
+      },
       "recruitment": {
         "title": {
           "zh": "招聘",
@@ -20,6 +26,30 @@
         "title": {
           "zh": "邮件与简历",
           "en": "Email & Resumes"
+        }
+      },
+      "search": {
+        "title": {
+          "zh": "搜索与联网",
+          "en": "Search"
+        }
+      },
+      "agents": {
+        "title": {
+          "zh": "Agent 与团队",
+          "en": "Agents"
+        }
+      },
+      "system": {
+        "title": {
+          "zh": "系统工具",
+          "en": "System"
+        }
+      },
+      "integration": {
+        "title": {
+          "zh": "集成与桥接",
+          "en": "Integrations"
         }
       }
     },
@@ -48,6 +78,50 @@
     }
   },
   "plugins": [
+    {
+      "name": "dsh-plugin-amazon-ops",
+      "title": {
+        "zh": "亚马逊运营工作台",
+        "en": "Amazon Ops Workbench"
+      },
+      "description": {
+        "zh": "15 个模块的亚马逊运营台：ASIN 库、采集、关键词库与排名、一致性优化、报告与质量看板，数据全部落本机。",
+        "en": "A 15-module Amazon operations workbench: ASIN library, collection, keyword library and ranks, optimization rounds, reports and quality cockpit. All data stays local."
+      },
+      "author": "Sablierj",
+      "repository": {
+        "url": "https://github.com/Sablierj/dsh-plugins-market"
+      },
+      "metadata": {
+        "category": "operations",
+        "keywords": [
+          "亚马逊",
+          "amazon",
+          "asin",
+          "关键词",
+          "listing",
+          "运营"
+        ],
+        "labels": [
+          "web-ui",
+          "local-data"
+        ],
+        "sortKeys": {
+          "updated": 1793063609
+        }
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1793063609,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "fc2d0578bf2172386f77929cb136af7f82b41893"
+          }
+        }
+      ]
+    },
     {
       "name": "@local/dsh-plugin-boss-recruit",
       "title": {
@@ -93,6 +167,132 @@
       ]
     },
     {
+      "name": "dsh-plugin-restart",
+      "title": {
+        "zh": "自动重启（会话续跑）",
+        "en": "Auto Restart with Session Resume"
+      },
+      "description": {
+        "zh": "重启 DSH 宿主并把一句话投回当前会话；后台助手负责关停、等待单实例锁、带 GPU 软渲染参数拉起，成功判据是进程名+启动时间。",
+        "en": "Restarts the DSH host and delivers a prompt back to the same session."
+      },
+      "author": "Sablierj",
+      "repository": {
+        "url": "https://github.com/Sablierj/dsh-plugins-market"
+      },
+      "metadata": {
+        "category": "system",
+        "keywords": [
+          "重启",
+          "restart",
+          "续跑",
+          "resume"
+        ],
+        "labels": [
+          "local-data"
+        ],
+        "sortKeys": {
+          "updated": 1793063672
+        }
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1793063672,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "5d600e380f3b329f4f81ad1db4afa1fae766ccf2"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@local/dsh-session-model-bridge",
+      "title": {
+        "zh": "会话模型反代",
+        "en": "Session Model Bridge"
+      },
+      "description": {
+        "zh": "把会话当前使用的模型用统一模型名反代成本机 OpenAI/Anthropic 兼容端点，供其它 agent 使用。",
+        "en": "Exposes the current session model as a local OpenAI/Anthropic compatible endpoint."
+      },
+      "icon": "icons/dsh-session-model-bridge.svg",
+      "author": "Sablierj",
+      "repository": {
+        "url": "https://github.com/Sablierj/dsh-plugins-market"
+      },
+      "metadata": {
+        "category": "integration",
+        "keywords": [
+          "模型",
+          "bridge",
+          "openai",
+          "anthropic"
+        ],
+        "labels": [
+          "local-data"
+        ],
+        "sortKeys": {
+          "updated": 1793063681
+        }
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1793063681,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "05216b536398749821aac421edfd7b0f59b0e628"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@local/dsh-web-search-searxng",
+      "title": {
+        "zh": "SearXNG 联网搜索",
+        "en": "SearXNG Web Search"
+      },
+      "description": {
+        "zh": "一体化搜索插件：便携后端（DSH 自带 Python，免 Docker）优先，可切 Docker 或外部实例；带运行时配置与体检。",
+        "en": "All-in-one SearXNG search plugin with portable, Docker and external backends."
+      },
+      "icon": "icons/dsh-web-search-searxng.svg",
+      "author": "Sablierj",
+      "repository": {
+        "url": "https://github.com/Sablierj/dsh-plugins-market"
+      },
+      "metadata": {
+        "category": "search",
+        "keywords": [
+          "搜索",
+          "searxng",
+          "search",
+          "web"
+        ],
+        "labels": [
+          "web-ui",
+          "local-data"
+        ],
+        "sortKeys": {
+          "updated": 1793063691
+        }
+      },
+      "versions": [
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1793063691,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "96d39a0ef6648d841eca81c7abdb7ad5f37c60ef"
+          }
+        }
+      ]
+    },
+    {
       "name": "@local/dsh-plugin-mail-resume",
       "title": {
         "zh": "企业邮箱简历下载",
@@ -100,7 +300,7 @@
       },
       "description": {
         "zh": "从已登录的企业邮箱里捞出 BOSS 直聘简历邮件，把近 N 天附件一键存到本机下载目录，按 mailid 去重记台账。",
-        "en": "Pull BOSS Zhipin resume mails from an already-logged-in enterprise mailbox and save recent attachments locally, deduped by mail id."
+        "en": "Pull BOSS Zhipin resume mails from an already-logged-in enterprise mailbox and save recent attachments locally."
       },
       "icon": "icons/mail-resume.svg",
       "author": "Sablierj",
@@ -132,6 +332,171 @@
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
             "commit": "ec710fc95f282da2bcba0f9fb51292279264a4ee"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@local/dsh-product-team",
+      "title": {
+        "zh": "产品研发团队",
+        "en": "Product Team"
+      },
+      "description": {
+        "zh": "agent preset + 6 个角色（需求/UX/全栈/QA/亚马逊运营）+ 软件工程流程与门禁 + 桌面操作能力（鼠标键盘截图、Chrome CDP）。",
+        "en": "Agent preset with six roles, an engineering process with gates, and desktop control."
+      },
+      "author": "Sablierj",
+      "repository": {
+        "url": "https://github.com/Sablierj/dsh-plugins-market"
+      },
+      "metadata": {
+        "category": "agents",
+        "keywords": [
+          "agent",
+          "团队",
+          "preset",
+          "流程"
+        ],
+        "labels": [
+          "local-data"
+        ],
+        "sortKeys": {
+          "updated": 1793063710
+        }
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1793063710,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "f2e3bbd745e4d6526b113a2fcb881efd76a7f439"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@local/team-model-switch",
+      "title": {
+        "zh": "团队模型一键切换",
+        "en": "Team Model Switch"
+      },
+      "description": {
+        "zh": "把本 Team 所有 teammate 会话切到队长当前模型与推理档位，含重启接线诊断。",
+        "en": "Switch every teammate session to the lead model and reasoning effort."
+      },
+      "icon": "icons/team-model-switch.svg",
+      "author": "Sablierj",
+      "repository": {
+        "url": "https://github.com/Sablierj/dsh-plugins-market"
+      },
+      "metadata": {
+        "category": "agents",
+        "keywords": [
+          "team",
+          "模型",
+          "切换"
+        ],
+        "labels": [
+          "local-data"
+        ],
+        "sortKeys": {
+          "updated": 1793063719
+        }
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1793063719,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "d7cc85a1438f3e3784d80e8a1bfafdaa095d8c34"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-plugin-user-console",
+      "title": {
+        "zh": "账号与凭据控制台",
+        "en": "Accounts & Vault Console"
+      },
+      "description": {
+        "zh": "本机凭据库的可视化控制台：按分类浏览、搜索、查看脱敏值，敏感值默认不展示。",
+        "en": "A local credentials vault console."
+      },
+      "author": "Sablierj",
+      "repository": {
+        "url": "https://github.com/Sablierj/dsh-plugins-market"
+      },
+      "metadata": {
+        "category": "system",
+        "keywords": [
+          "凭据",
+          "vault",
+          "账号",
+          "password"
+        ],
+        "labels": [
+          "web-ui",
+          "local-data"
+        ],
+        "sortKeys": {
+          "updated": 1793063728
+        }
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1793063728,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "ebfb55a9b635e39bcfc76d1f9966546ee2d6d083"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@local/wechat-session-bind",
+      "title": {
+        "zh": "微信会话绑定",
+        "en": "WeChat Session Bind"
+      },
+      "description": {
+        "zh": "把微信联系人绑定到指定 DSH 会话，实现手机侧收发与工作台联动。",
+        "en": "Binds WeChat contacts to a specific DSH session."
+      },
+      "icon": "icons/wechat-session-bind.svg",
+      "author": "Sablierj",
+      "repository": {
+        "url": "https://github.com/Sablierj/dsh-plugins-market"
+      },
+      "metadata": {
+        "category": "integration",
+        "keywords": [
+          "微信",
+          "wechat",
+          "绑定"
+        ],
+        "labels": [
+          "local-data"
+        ],
+        "sortKeys": {
+          "updated": 1793063737
+        }
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1793063737,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "7df2f695db64e8bf900763cb08ac367eec91ee7a"
           }
         }
       ]
