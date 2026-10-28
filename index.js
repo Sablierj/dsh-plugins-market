@@ -2457,7 +2457,7 @@ function exportRows(rows, criteria) {
     '消息条数': r.msgCount == null ? '' : r.msgCount,
     '对话条数': r.dialogCount == null ? '' : r.dialogCount,
     '最后发言': r.lastSpeaker || '',
-    '最后沟通时间': r.lastTalkAt || '',
+    '最后沟通时间': fmtTime(r.lastTalkAt),
     '最近对话内容': String(r.lastTalkText || '').slice(0, 200),
     '最近沟通要点': String(r.keyInfo || '').slice(0, 300),
     // v2.27.0：项目与技能（原先只在面板里看得到，导不出来）
@@ -2466,9 +2466,9 @@ function exportRows(rows, criteria) {
     '打星': r.starred ? '⭐' : '',
     // 时间线
     '首次登记': r.firstSeenAtLocal,
-    '打招呼时间': r.greetedAt,
-    '回话时间': r.repliedAt || '',
-    '收简历时间': r.resumeAt,
+    '打招呼时间': fmtTime(r.greetedAt),
+    '回话时间': fmtTime(r.repliedAt),
+    '收简历时间': fmtTime(r.resumeAt),
     '更新时间': r.updatedAtLocal,
     // v2.27.0：面试信息（原先只导了时间/地点/方式/联系人/电话，缺链接与备注）
     '面试时间': r.interviewTime || '',
