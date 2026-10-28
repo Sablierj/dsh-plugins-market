@@ -5000,6 +5000,16 @@ async function handleApi(req, res) {
           source: body.source,
           jobId: body.jobId,
         })
+      } else if (action === 'export') {
+        // v2.27.2：面板的「导出 CSV / Markdown」按钮改走后端同一份 exportRows，
+        // 不再由 client.js 自己拼一套列 —— 原先两边各维护一份，Host 侧补到 49 列
+        // 面板仍是 22 列，「收简历时间」这类字段在面板导出里根本不存在。
+        result = await runAction({
+          action: 'export',
+          jobId: body.jobId,
+          filterJob: body.filterJob,
+          format: body.format,
+        })
       } else {
         result = { ok: false, error: `未知 POST action: ${action}` }
       }

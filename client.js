@@ -1353,50 +1353,34 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
         }
       }, [post])
 
-      const exportAs = useCallback((format) => {
-        // v2.2：跨岗位视图多导出「岗位」列
-        const header = ['序号', '姓名', '公司']
-        if (viewAll) header.push('岗位')
-        // v2.3：备注列追加在最后（与 Host export 的列序保持一致）
-        header.push('学历', '毕业年份', '期望城市', '工作年限', '期望薪资', '学信网', '核验', '状态', '淘汰原因', '匹配度分', '匹配度等级', '性价比分', '性价比等级', '匹配要点', '更新时间', '备注')
-        // v2.17.2：勾了人只导勾选的；没勾就导「当前岗位全部」（用未筛选的 jobRows，不受界面筛选影响）
-        const exportRows2 = (selected && selected.length > 0)
-          ? rows.filter((r) => selected.includes(r.key))
-          : jobRows
-        const line = (r) => {
-          const out = [r.seq || '', r.name, r.company]
-          if (viewAll) out.push(r.jobName || '')
-          out.push(
-            r.edu, r.gradYear == null ? '' : r.gradYear,
-            r.expectCity, r.workYears == null ? '' : r.workYears, r.expectSalary,
-            r.xuexinSelf, r.xuexinVerify, r.stageLabel, r.rejectReasonLabel,
-            r.techFitScore == null ? '' : r.techFitScore, r.techFitGrade || '',
-            r.valueScore == null ? '' : r.valueScore, r.valueGrade || '',
-            (r.matchHits || []).join('；'), r.updatedAtLocal,
-            String(r.note == null ? '' : r.note).replace(/\n/g, ' '),
-          )
-          return out
-        }
+      const exportAs = useCallback(async (format) => {
+        // v2.27.2：改走后端 export —— 列定义只有一份（Host 侧 exportRows），
+        // 原先这里自己拼 22 列，与 Host 的 49 列长期不一致，
+        // 「收简历时间 / 回话时间 / 面试链接」这类字段在面板导出里根本不存在。
         const title = viewAll
           ? '全部岗位'
           : ((current && current.criteria && current.criteria.jobTitle) || '候选人')
-        if (format === 'csv') {
-          const lines = [header.map(csvCell).join(',')]
-          for (const r of exportRows2) lines.push(line(r).map(csvCell).join(','))
-          // v2.17.2：加 UTF-8 BOM，Excel/飞书 打开不乱码
-          downloadText(`${title}-台账.csv`, '\ufeff' + lines.join('\n'), 'text/csv;charset=utf-8')
-        } else {
-          const md = [
-            `# ${title} 候选人台账`,
-            '',
-            `| ${header.join(' | ')} |`,
-            `|${header.map(() => '---').join('|')}|`,
-            ...rows.map((r) => `| ${line(r).join(' | ')} |`),
-          ].join('\n')
-          downloadText(`${title}-台账.md`, md, 'text/markdown;charset=utf-8')
+        setSaveError('')
+        try {
+          const res = await post({
+            action: 'export',
+            format,
+            filterJob: viewAll ? 'all' : undefined,
+          })
+          if (!res || res.ok === false) {
+            setSaveError(`导出失败：${(res && res.error) || '未知错误'}`)
+            return
+          }
+          if (format === 'csv') {
+            downloadText(`${title}-台账.csv`, res.csv, 'text/csv;charset=utf-8')
+          } else {
+            downloadText(`${title}-台账.md`, res.markdown, 'text/markdown;charset=utf-8')
+          }
+          setNotice(`已导出 ${res.count} 条（${String(format).toUpperCase()}）`)
+        } catch (e) {
+          setSaveError(`导出失败：${String((e && e.message) || e)}`)
         }
-        setNotice(`已导出 ${rows.length} 条（${format.toUpperCase()}）`)
-      }, [rows, current, viewAll])
+      }, [post, current, viewAll])
 
       // ------------------------------------------------ 子视图
 
