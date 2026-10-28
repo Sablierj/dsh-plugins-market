@@ -2427,15 +2427,21 @@ function exportRows(rows, criteria) {
     '序号': r.seq || '',
     '姓名': r.name,
     '公司': r.company,
+    '上一家公司': r.company2 || '',
     '学历': r.edu,
     '毕业年份': r.gradYear == null ? '' : r.gradYear,
+    '毕业学校': r.school || '',
     '期望城市': r.expectCity,
+    '期望职位': r.expectPosition || '',
     '工作年限': r.workYears == null ? '' : r.workYears,
     '期望薪资': r.expectSalary,
     '期望薪资下限K': r.expectSalaryMinK == null ? '' : r.expectSalaryMinK,
+    '手机号': r.phone || '',
+    '邮箱': r.email || '',
     '学信网自述': r.xuexinSelf,
     '核验': r.xuexinVerify,
     '状态': r.stageLabel,
+    '人员状态': r.status7Label || '',
     '淘汰原因': r.rejectReasonLabel,
     '匹配要点': (r.matchHits || []).join('；'),
     '匹配缺口': (r.matchGaps || []).join('；'),
@@ -2446,10 +2452,32 @@ function exportRows(rows, criteria) {
     '性价比等级': r.valueGrade || '',
     // v2.2：跨岗位导出（filterJob=all）时用行自带的岗位名，单岗位导出仍用口径里的标题
     '岗位': r.jobName || criteria.jobTitle || '',
+    '岗位ID': r.jobId || '',
+    // v2.27.0：沟通维度（原先只有 msgCount，缺少对话条数与最后一条内容）
+    '消息条数': r.msgCount == null ? '' : r.msgCount,
+    '对话条数': r.dialogCount == null ? '' : r.dialogCount,
+    '最后发言': r.lastSpeaker || '',
+    '最后沟通时间': r.lastTalkAt || '',
+    '最近对话内容': String(r.lastTalkText || '').slice(0, 200),
+    '最近沟通要点': String(r.keyInfo || '').slice(0, 300),
+    // v2.27.0：项目与技能（原先只在面板里看得到，导不出来）
+    '项目摘要': String(r.projectBrief || '').slice(0, 500),
+    '技能标签': (r.skills || []).join('；'),
+    '打星': r.starred ? '⭐' : '',
+    // 时间线
     '首次登记': r.firstSeenAtLocal,
     '打招呼时间': r.greetedAt,
+    '回话时间': r.repliedAt || '',
     '收简历时间': r.resumeAt,
     '更新时间': r.updatedAtLocal,
+    // v2.27.0：面试信息（原先只导了时间/地点/方式/联系人/电话，缺链接与备注）
+    '面试时间': r.interviewTime || '',
+    '面试地点': r.interviewLocation || '',
+    '面试方式': r.interviewMode || '',
+    '面试联系人': r.interviewContact || '',
+    '面试电话': r.interviewPhone || '',
+    '面试链接': (r.interview && r.interview.link) || '',
+    '面试备注': (r.interview && r.interview.note) || '',
     // v2.3：备注列追加在最后（CSV 与 markdown 都带备注）
     '备注': r.note == null ? '' : String(r.note),
   }))
@@ -3954,32 +3982,12 @@ async function runAction(args) {
       ).map((x) => ({
         ...decorate(x),
         jobName: (state.jobs[x.jobId] || {}).name || '',
+        // v2.27.0：人员状态（7 级）改由这里注入，exportRows 直接读字段，
+        // 不再在 export 里二次追加 —— 原先那样会产生「收简历时间」「备注」两列同名的重复列
+        status7Label: status7Of(x).status7Label,
       }))
       const format = args.format === 'csv' ? 'csv' : 'markdown'
-      const table = exportRows(rows, (job && job.criteria) || {}).map((row, i) => {
-        const src = rows[i] || {}
-        const s7 = status7Of(src)
-        return {
-          ...row,
-          人员状态: s7.status7Label,
-          期望职位: src.expectPosition || "",
-          毕业学校: src.school || "",
-          手机号: src.phone || "",
-          邮箱: src.email || "",
-          最近沟通要点: String(src.keyInfo || "").slice(0, 150),
-          上一家公司: src.company2 || "",
-          消息条数: src.msgCount == null ? "" : src.msgCount,
-          最后发言: src.lastSpeaker || "",
-          最后沟通时间: src.lastTalkAt || "",
-          收简历时间: fmtTime(src.resumeAt),
-          面试时间: src.interviewTime || "",
-          面试地点: src.interviewLocation || "",
-          面试方式: src.interviewMode || "",
-          面试联系人: src.interviewContact || "",
-          面试电话: src.interviewPhone || "",
-          备注: String(src.note || ""),
-        }
-      })
+      const table = exportRows(rows, (job && job.criteria) || {})
       if (format === 'csv') {
         const header = Object.keys(table[0] || { '序号': '' })
         const lines = [header.map(csvCell).join(',')]
