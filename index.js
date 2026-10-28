@@ -2820,7 +2820,9 @@ async function runAction(args) {
       }
 
       // ③ log 覆盖率：沟通阶段但一条对话都没记
-      const noDialog = chatStage.filter((c) => !c.dialogCount)
+      // 注意 dialogCount 是「读取时由 dialogLog.length 派生」的字段，不落盘；
+      // 这里读的是原始 state，必须自己算长度，否则永远是 0（v2.26.0 首版就是这个 bug）
+      const noDialog = chatStage.filter((c) => !((c.dialogLog || []).length))
       if (noDialog.length > 0) {
         issues.push({
           code: 'LOG_MISSING',
