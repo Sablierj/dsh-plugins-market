@@ -36,6 +36,15 @@ const STAGES = [
   'interview_scheduled', 'pending', 'rejected', 'stale',
 ]
 
+// v2.26.0｜沟通页独有的阶段：只有 reply 模式 + 有效 chatScope 才能推进。
+// 为什么加这道硬门禁：recruit 模式下 upsert 这些阶段以前是能过的，于是「在推荐页顺手把
+// 沟通页的状态也推了」变成了一条绕过 mode / chatScope 的捷径，两道护栏形同虚设。
+// 现在绕过它 = 状态推不上去，和 markGreet 的 screen 闸门同一个思路。
+const CHAT_ONLY_STAGES = [
+  'resume_requested', 'resume_received',
+  'interview_pending', 'interview_available', 'interview_scheduled',
+]
+
 const STAGE_LABEL = {
   new: '新来信待处理',
   greeted: '已打招呼',
@@ -338,6 +347,32 @@ function requireChatScope(state, job, jobId) {
     return 'chatScope 已过期，重新确认一遍沟通页的岗位筛选再 chatScope'
   }
   return null
+}
+
+/**
+ * v2.26.0｜沟通阶段的模式闸门：返回错误字符串，或 null 表示通过。
+ * recruit（招聘模式）下不允许把候选人推进到沟通页独有的阶段——
+ * 那些阶段只能在「沟通」页产生，用推荐页的操作去推它，等于伪造了一个没发生的对话。
+ */
+function requireReplyModeForStage(state, jobId, stage) {
+  if (!CHAT_ONLY_STAGES.includes(stage)) return null
+  const mode = (state.jobModes && state.jobModes[jobId]) || state.mode || 'recruit'
+  if (mode === 'recruit') {
+    return `「${STAGE_LABEL[stage] || stage}」只能在沟通页产生，当前是招聘模式（recruit）。` +
+      `先 mode(mode="reply") 去「沟通」页处理，再 upsert stage=${stage}；` +
+      `在推荐页顺手推这个阶段会被拒——它不是一次打招呼能到的状态`
+  }
+  return null
+}
+
+/**
+ * v2.26.0｜沟通阶段的台账合并闸门：既要 reply 模式，也要有效 chatScope。
+ * 只查 chatScope 不查 mode 会漏掉「人还在推荐页、作用域恰好没过期」这种混合态。
+ */
+function requireChatContext(state, job, jobId, stage) {
+  const modeErr = requireReplyModeForStage(state, jobId, stage)
+  if (modeErr) return modeErr
+  return requireChatScope(state, job, jobId)
 }
 
 // v2.11.0｜工作流程：每一步就是一个「动作」。面板可增删改排序，渲染进 system prompt 作为唯一执行顺序。
@@ -2734,6 +2769,99 @@ async function runAction(args) {
     })
   }
 
+  // v2.26.0｜audit：自查本轮有没有绕过护栏。
+  // 存在的意义是「可观测」——绕过 mode / chatScope / log 时台账不会报错，
+  // 只有事后对账才看得出来，所以给一个随时能跑的检查。
+  if (action === 'audit') {
+    return withState((state) => {
+      // 注意：这里不能引用下面的 jobId —— 它在「候选人相关」段才初始化
+      const { job, id: auditJobId } = resolveJob(state, args.jobId)
+      const mode = (state.jobModes && state.jobModes[auditJobId]) || state.mode || 'recruit'
+      const sc = state.chatScope
+      const issues = []
+      const now = Date.now()
+
+      // ① 模式 vs 台账：recruit 模式下不该有沟通阶段的新记录
+      const cands = Object.values(state.candidates).filter((c) => c.jobId === auditJobId)
+      const chatStage = cands.filter((c) => CHAT_ONLY_STAGES.includes(c.stage))
+      if (mode === 'recruit' && chatStage.length > 0) {
+        issues.push({
+          code: 'MODE_MISMATCH',
+          severity: 'warn',
+          message: `当前 recruit 模式，但台账里有 ${chatStage.length} 人处于沟通阶段（resume_* / interview_*）。` +
+            `这些阶段按 v2.26.0 只能在 reply 模式 + chatScope 下产生；若是本版本之前写的，属于历史遗留。`,
+          sample: chatStage.slice(0, 5).map((c) => `${c.name}(${STAGE_LABEL[c.stage] || c.stage})`),
+        })
+      }
+
+      // ② chatScope 是否声明/过期
+      if (!sc || !sc.at) {
+        issues.push({
+          code: 'NO_CHAT_SCOPE',
+          severity: 'info',
+          message: '尚未声明 chatScope。要处理「沟通」页就必须先 chatScope(pageJobLabel=页面上显示的职位名)。',
+        })
+      } else {
+        const maxAge = (job && job.criteria.chatScopeTtlMin ? job.criteria.chatScopeTtlMin : 120) * 60 * 1000
+        const ageMin = Math.round((now - new Date(sc.at).getTime()) / 60000)
+        if (now - new Date(sc.at).getTime() > maxAge) {
+          issues.push({
+            code: 'CHAT_SCOPE_EXPIRED',
+            severity: 'warn',
+            message: `chatScope 已过期（${ageMin} 分钟前声明，TTL ${Math.round(maxAge / 60000)} 分钟），需要重新确认岗位筛选再 chatScope。`,
+          })
+        } else if (sc.jobId !== auditJobId) {
+          issues.push({
+            code: 'CHAT_SCOPE_JOB_MISMATCH',
+            severity: 'warn',
+            message: `chatScope 记录的是另一个岗位（${sc.jobId}），当前岗位是 ${auditJobId}。`,
+          })
+        }
+      }
+
+      // ③ log 覆盖率：沟通阶段但一条对话都没记
+      const noDialog = chatStage.filter((c) => !c.dialogCount)
+      if (noDialog.length > 0) {
+        issues.push({
+          code: 'LOG_MISSING',
+          severity: 'warn',
+          message: `${noDialog.length} 人处于沟通阶段但 dialogCount=0（没用 log 记过对话）。` +
+            `沟通要点必须用 log 存档（毕业年份/学信网/工作年限/期望薪资/可面试时间/项目匹配点），写在 note 里不算。`,
+          sample: noDialog.slice(0, 5).map((c) => c.name),
+        })
+      }
+
+      // ④ 重复记录：同岗位同名多条
+      const byName = new Map()
+      for (const c of cands) {
+        const k = String(c.name || '').trim()
+        if (!k) continue
+        if (!byName.has(k)) byName.set(k, [])
+        byName.get(k).push(c)
+      }
+      const dups = [...byName.entries()].filter(([, arr]) => arr.length > 1)
+      if (dups.length > 0) {
+        issues.push({
+          code: 'DUPLICATE_ROWS',
+          severity: 'warn',
+          message: `${dups.length} 个姓名在同岗位下有多条记录。interview / upsert 会先命中第一条，容易推错状态。`,
+          sample: dups.slice(0, 5).map(([n, arr]) => `${n}×${arr.length}`),
+        })
+      }
+
+      const ok = issues.filter((i) => i.severity === 'warn').length === 0
+      return {
+        ok: true,
+        jobId: auditJobId,
+        mode,
+        chatScope: sc ? { label: sc.label, jobId: sc.jobId, at: sc.at } : null,
+        counts: { candidates: cands.length, chatStage: chatStage.length, noDialog: noDialog.length, duplicates: dups.length },
+        issues,
+        verdict: ok ? '未发现护栏绕过迹象' : '发现需要处理的问题，见 issues',
+      }
+    })
+  }
+
   // ======================= 候选人相关 =======================
   // 解析岗位（后面的动作默认作用于当前岗位）
   const resolved = await readState((state) => {
@@ -3427,6 +3555,12 @@ async function runAction(args) {
       if (args.stage === 'greeted') {
         const g = requireScreenForGreet(state, jobId, { ...args, bossId })
         if (g) return { ok: false, error: g }
+      }
+      // v2.26.0：沟通页独有的阶段（resume_* / interview_*）必须先切 reply 模式 + 声明 chatScope。
+      // 这道门禁的作用不是「多一步」，是让「在推荐页顺手把沟通页状态推了」这条捷径消失。
+      if (args.stage) {
+        const ctxErr = requireChatContext(state, job, jobId, args.stage)
+        if (ctxErr) return { ok: false, error: ctxErr }
       }
       const c = job.criteria
       if (args.stage === 'greeted' && !state.candidates[candKey(jobId, bossId)]) {
@@ -4906,7 +5040,7 @@ export function apply(ctx) {
             enum: [
               'pace', 'upsert', 'batch', 'sweep', 'interview', 'sop', 'list', 'next', 'seen', 'export', 'config',
               'markGreet', 'markBrowse', 'log', 'checkReply', 'screen', 'chatScope', 'clickPlan', 'readPlan', 'chatTabs', 'nextInbox', 'claim', 'backfill', 'flow', 'observe', 'completeGreet', 'backup-export', 'backup-import', 'jobs', 'selectJob', 'job',
-              'createJob', 'deleteJob', 'mode', 'check', 'view', 'star', 'reject', 'stats', 'evaluate',
+              'createJob', 'deleteJob', 'mode', 'check', 'view', 'star', 'reject', 'stats', 'evaluate', 'audit',
             ],
             description:
               'jobs=列出岗位；selectJob=切换岗位（并恢复该岗位上次的模式）；job=查看/创建/更新/删除岗位（配 jobOp）；' +
