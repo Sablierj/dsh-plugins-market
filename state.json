@@ -19,14 +19,14 @@
       "path": "boss-recruit",
       "branch": "pkg/boss-recruit",
       "name": "@local/dsh-plugin-boss-recruit",
-      "version": "2.26.0",
-      "commit": "e61e254863f0f684b65582ce5929e18a43be9859",
-      "timestamp": 1793154740,
+      "version": "2.26.1",
+      "commit": "3ddec882a09638235a00ee276c79c67059a38999",
+      "timestamp": 1793155872,
       "versions": [
         {
-          "version": "2.26.0",
-          "commit": "e61e254863f0f684b65582ce5929e18a43be9859",
-          "timestamp": 1793154740
+          "version": "2.26.1",
+          "commit": "3ddec882a09638235a00ee276c79c67059a38999",
+          "timestamp": 1793155872
         }
       ]
     },
