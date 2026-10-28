@@ -151,26 +151,17 @@
           "local-data"
         ],
         "sortKeys": {
-          "updated": 1793076308
+          "updated": 1793154740
         }
       },
       "versions": [
         {
-          "version": "2.22.0",
-          "publishTimestamp": 1793019820,
+          "version": "2.26.0",
+          "publishTimestamp": 1793154740,
           "source": {
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
-            "commit": "32b6545905e6531d862a4652fba2db9ca2b37943"
-          }
-        },
-        {
-          "version": "2.25.0",
-          "publishTimestamp": 1793076308,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/Sablierj/dsh-plugins-market",
-            "commit": "0de43d161cafe11d130b0268219adb9e24c016da"
+            "commit": "e61e254863f0f684b65582ce5929e18a43be9859"
           }
         }
       ]
@@ -205,15 +196,6 @@
         }
       },
       "versions": [
-        {
-          "version": "1.0.0",
-          "publishTimestamp": 1793063672,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/Sablierj/dsh-plugins-market",
-            "commit": "5d600e380f3b329f4f81ad1db4afa1fae766ccf2"
-          }
-        },
         {
           "version": "1.0.1",
           "publishTimestamp": 1793064341,
