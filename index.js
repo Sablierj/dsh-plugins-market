@@ -442,6 +442,9 @@ function defaultCriteria() {
     // v2.3 新增：方向加分词（原先写死在代码里的业务方向词表，改为岗位口径字段）
     // 命中即计入加分 hits，并参与 starWorthy（⭐优先回捞）判断；默认 [] = 不做方向加分
     starTokens: [],
+    // v2.28.0 新增：方向分类（一个岗位装多个方向时用）
+    // 结构 [{ key, label, keywords: [] }]；空数组 = 不分类，判定行为与旧版完全一致
+    tracks: [],
     requireProjectKeyword: true,
     dealbreakers: ['应届/未毕业', '学历低于大专'],
     greetQuotaPerDay: 80,
@@ -1501,6 +1504,46 @@ function evaluate(candidate, criteria) {
     }
   }
 
+  // ---- 方向分类（v2.28.0）----
+  // criteria.tracks = [{ key, label, keywords: [] }]
+  // 一个岗位装多个方向时，用它把候选人分到某一类；不配置则完全不影响原有判定。
+  const tracksCfg = Array.isArray(c.tracks) ? c.tracks.filter((t) => t && t.key) : []
+  let trackKey = ''
+  let trackLabel = ''
+  const trackScores = {}
+  if (tracksCfg.length > 0) {
+    const trackText = [
+      (candidate.skills || []).join(' '),
+      candidate.project || '',
+      candidate.expectPosition || '',
+      candidate.company || '',
+      candidate.note || '',
+    ].join(' ').toLowerCase()
+    for (const t of tracksCfg) {
+      const kws = Array.isArray(t.keywords) ? t.keywords : []
+      trackScores[t.key] = kws.filter((k) => k && trackText.includes(String(k).toLowerCase())).length
+    }
+    // 手动指定优先：候选人自己报了方向，或人工判过
+    const manual = String(candidate.track || '').trim()
+    const manualHit = manual
+      ? tracksCfg.find((t) => t.key === manual || t.label === manual)
+      : null
+    if (manualHit) {
+      trackKey = manualHit.key
+      trackLabel = manualHit.label || manualHit.key
+    } else {
+      let best = null
+      for (const t of tracksCfg) {
+        const n = trackScores[t.key] || 0
+        if (n > 0 && (!best || n > best.n)) best = { key: t.key, label: t.label || t.key, n }
+      }
+      if (best) {
+        trackKey = best.key
+        trackLabel = best.label
+      }
+    }
+  }
+
   // ---- 待定：仅此一种情况 ----
   const ok = gaps.length === 0
   const suggestStage = !ok ? 'rejected' : overCap ? 'pending' : 'qualified'
@@ -1539,6 +1582,10 @@ function evaluate(candidate, criteria) {
     value,
     expectSalaryMinK: expectMinK == null || Number.isNaN(expectMinK) ? null : expectMinK,
     expectSalaryMinCapK: capK,
+    // v2.28.0：方向分类（未配置 criteria.tracks 时三者均为 null，行为与旧版一致）
+    track: trackKey || null,
+    trackLabel: trackLabel || null,
+    trackScores: tracksCfg.length ? trackScores : null,
     note: '判定依据为候选人自述，真伪待人工核验',
   }
 }
@@ -2453,6 +2500,8 @@ function exportRows(rows, criteria) {
     // v2.2：跨岗位导出（filterJob=all）时用行自带的岗位名，单岗位导出仍用口径里的标题
     '岗位': r.jobName || criteria.jobTitle || '',
     '岗位ID': r.jobId || '',
+    // v2.28.0：方向分类（岗位配了 criteria.tracks 才有值）
+    '方向': r.trackLabel || '',
     // v2.27.0：沟通维度（原先只有 msgCount，缺少对话条数与最后一条内容）
     '消息条数': r.msgCount == null ? '' : r.msgCount,
     '对话条数': r.dialogCount == null ? '' : r.dialogCount,
@@ -3677,6 +3726,10 @@ async function runAction(args) {
       const evaluation = evaluate(next, c)
       next.matchGaps = evaluation.gaps
       next.matchHits = evaluation.hits
+      // v2.28.0：方向分类（自动判定写 trackAuto，见 upsert 处注释）
+      next.trackAuto = evaluation.track
+      next.trackLabel = evaluation.trackLabel
+      next.trackScores = evaluation.trackScores
       // v2.1：派生评分随 upsert 一并落库（整数或 null，绝不写 NaN/undefined）
       next.techFitScore = evaluation.techFit.score
       next.techFitGrade = evaluation.techFit.grade
@@ -3773,6 +3826,11 @@ async function runAction(args) {
       const evaluation = evaluate(cand, job.criteria)
       cand.matchGaps = evaluation.gaps
       cand.matchHits = evaluation.hits
+      // v2.28.0：方向分类。自动判定写 trackAuto，不覆盖 cand.track ——
+      // cand.track 是「人工/候选人自报」的输入，写回会把它变成自我确认的死循环。
+      cand.trackAuto = evaluation.track
+      cand.trackLabel = evaluation.trackLabel
+      cand.trackScores = evaluation.trackScores
       // v2.1：派生评分同步刷新（纯函数，重算不会漂移）
       cand.techFitScore = evaluation.techFit.score
       cand.techFitGrade = evaluation.techFit.grade
@@ -3882,6 +3940,11 @@ async function runAction(args) {
       if (args.filterEdu) items = items.filter((x) => String(x.edu || '').includes(String(args.filterEdu)))
       if (args.filterCity) items = items.filter((x) => String(x.expectCity || '').includes(String(args.filterCity)))
       if (args.filterXuexin) items = items.filter((x) => (args.filterXuexin === '待核验' ? x.xuexinVerify === 'pending' : x.xuexinSelf === args.filterXuexin))
+      // v2.28.0：按方向分类筛选（传 key 或 label 都认；岗位未配 tracks 时该字段恒为空，不影响旧用法）
+      if (args.filterTrack) {
+        const want = String(args.filterTrack)
+        items = items.filter((x) => x.trackAuto === want || x.trackLabel === want || x.track === want)
+      }
       // v2.1：匹配度下限 / 性价比等级筛选（NA 单独成档）
       if (args.filterTechFitMin != null && args.filterTechFitMin !== '') {
         const min = Number(args.filterTechFitMin)
@@ -5181,6 +5244,7 @@ export function apply(ctx) {
           filterEdu: { type: 'string', description: 'list 时按学历过滤' },
           filterCity: { type: 'string', description: 'list 时按期望城市过滤' },
           filterXuexin: { type: 'string', description: 'list 时按学信网自述过滤（可查/不可查/未说/待核验）' },
+          filterTrack: { type: 'string', description: 'list 时按方向分类过滤（岗位 criteria.tracks 的 key 或 label，如 member/会员权益）' },
           filterTechFitMin: { type: 'number', description: 'list 时筛选技术匹配度 techFitScore ≥ 该值' },
           filterValueGrade: {
             type: 'string',
