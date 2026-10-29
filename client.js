@@ -1725,7 +1725,8 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
           rate == null ? null : h('span', { style: { color: C.muted, fontSize: 11 } }, `(${rate}%)`),
         )
         const arrow = (k) => h('span', { key: k, style: { color: C.muted } }, '→')
-        return h('div', {
+        return h(React.Fragment, null,
+          h('div', {
           style: {
             display: 'flex',
             flexWrap: 'wrap',
@@ -1755,6 +1756,33 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
             `${rejectReasons[key] || key} ${(statsView.rejects && statsView.rejects[key]) || 0}`)),
         statsView.starred
           ? h('span', { style: { color: C.warn } }, `⭐ ${statsView.starred}`)
+          : null,
+        ),
+        // v2.28.0：方向分漏斗（岗位配了 criteria.tracks 才有；未配置时 byTrack 为 null）
+        statsView.byTrack
+          ? h('div', {
+              key: 'byTrack',
+              style: {
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                gap: 10,
+                padding: '6px 10px',
+                marginBottom: 8,
+                borderRadius: 8,
+                background: C.layer1,
+                border: `1px solid ${C.border}`,
+                fontSize: 12,
+              },
+            },
+            h('span', { style: { color: C.muted } }, '按方向'),
+            ...Object.values(statsView.byTrack).map((t) =>
+              h('span', { key: 'tk-' + t.key, style: { display: 'inline-flex', alignItems: 'baseline', gap: 6 } },
+                chip(t.label, t.key === '__none' ? 'warn' : 'brand'),
+                h('span', { style: { color: C.muted } },
+                  `总 ${t.total} · 招呼 ${t.greeted} · 简历 ${t.resume} · 淘汰 ${t.rejected}` +
+                  (t.avgTechFit == null ? '' : ` · 均分 ${t.avgTechFit}`)))),
+          )
           : null,
         )
       }
@@ -2392,6 +2420,8 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
                 // v2.2：跨岗位视图才多一列「岗位」
                 viewAll ? headerCell('岗位') : null,
                 headerCell('人员状态'),
+                // v2.28.0：方向分类（岗位配了 criteria.tracks 才有值，否则整列都是 —）
+                headerCell('方向'),
                 headerCell('学历'),
                 headerCell('毕业年份', 'gradYear'),
                 headerCell('工作年限', 'workYears'),
@@ -2455,6 +2485,12 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
                     },
                     title: row.stageLabel || '',
                   }, row.status7Label || row.stageLabel || '—'),
+                  // v2.28.0：方向徽标
+                  h('td', { style: { padding: '4px 8px', whiteSpace: 'nowrap' } },
+                    row.trackLabel
+                      ? chip(row.trackLabel, row.trackAuto === 'member' ? 'brand' : row.trackAuto === 'community' ? 'ok' : 'warn',
+                          row.trackAuto ? '按关键词自动判定' : '人工/自报方向')
+                      : h('span', { style: { color: C.idle }, title: '三个方向关键词都没命中，建议问一句' }, '—')),
                   h('td', { style: { padding: '4px 8px', color: C.muted }, title: row.edu || '' }, row.edu || '—'),
                   h('td', { style: { padding: '4px 8px', color: C.muted } }, row.gradYear == null ? '—' : row.gradYear),
                   h('td', { style: { padding: '4px 8px', color: C.muted } }, row.workYears == null ? '—' : row.workYears),

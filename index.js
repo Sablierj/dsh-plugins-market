@@ -1770,6 +1770,40 @@ function statsOf(state, jobId) {
     techFitGrades[g] = (techFitGrades[g] || 0) + 1
   }
 
+  // ---- v2.28.0：按方向统计（岗位配了 criteria.tracks 才有；跨岗位汇总时不统计）----
+  // 一个岗位装多个方向时，总量数字会掩盖「A 方向招满了、B 方向一个都没有」这种事实，
+  // 所以每个方向单独跑一遍漏斗。
+  const trackList = jobId !== 'all' && state.jobs[jobId] && Array.isArray(state.jobs[jobId].criteria.tracks)
+    ? state.jobs[jobId].criteria.tracks
+    : []
+  let byTrack = null
+  if (trackList.length) {
+    const RESUME_STAGES = ['resume_received', 'interview_pending', 'interview_available', 'interview_scheduled']
+    const INTERVIEW_STAGES = ['interview_available', 'interview_scheduled']
+    const bucketOf = (group) => {
+      const tf = group.map((x) => numOrNull(x.techFitScore)).filter((n) => n != null)
+      return {
+        total: group.length,
+        greeted: group.filter((x) => x.greetedAt).length,
+        replied: group.filter((x) => x.repliedAt).length,
+        resume: group.filter((x) => x.resumeAt || RESUME_STAGES.includes(x.stage)).length,
+        interview: group.filter((x) => x.interviewAt || INTERVIEW_STAGES.includes(x.stage)).length,
+        rejected: group.filter((x) => x.stage === 'rejected').length,
+        starred: group.filter((x) => x.starred).length,
+        avgTechFit: tf.length ? Math.round(tf.reduce((a, b) => a + b, 0) / tf.length) : null,
+      }
+    }
+    byTrack = {}
+    for (const t of trackList) {
+      const label = t.label || t.key
+      const group = all.filter((x) => x.trackLabel === label || x.trackAuto === t.key || x.track === t.key)
+      byTrack[t.key] = { key: t.key, label, ...bucketOf(group) }
+    }
+    // 未分类：三个方向关键词一个都没命中的人（需要人工问一句）
+    const un = all.filter((x) => !x.trackLabel && !x.trackAuto && !x.track)
+    byTrack.__none = { key: '__none', label: '未分类', ...bucketOf(un) }
+  }
+
   return {
     total,
     funnel: { inbound: total, greeted, replied, resume, interview },
@@ -1782,6 +1816,8 @@ function statsOf(state, jobId) {
     rejects,
     rejectTotal: Object.values(rejects).reduce((a, b) => a + b, 0),
     byStage,
+    // v2.28.0：按方向的分漏斗（未配 tracks 的岗位为 null）
+    byTrack,
     starred: all.filter((x) => x.starred).length,
     scores: {
       avgTechFit: avg(tfScores),
