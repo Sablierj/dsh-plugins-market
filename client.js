@@ -567,6 +567,70 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
             control,
             hint ? h('div', { style: { fontSize: 10, color: C.muted } }, hint) : null,
           )
+          // ===== v2.29.0：嵌套对象（mouseArc / resumeScroll）与 criteria 顶层字段的编辑器 =====
+          const setNested = (objKey, patch) => {
+            const cur = hz[objKey] || {}
+            setHz({ [objKey]: { ...cur, ...patch } })
+          }
+          const numBoxN = (objKey, k, d, step) => h('input', {
+            style: { ...inputStyle, width: 76, textAlign: 'right' },
+            type: 'number',
+            step: step || 1,
+            value: (hz[objKey] && hz[objKey][k] != null) ? hz[objKey][k] : d,
+            onChange: (e) => setNested(objKey, { [k]: Number(e.target.value) }),
+          })
+          const rangeBoxN = (objKey, minK, maxK, dMin, dMax) => {
+            const cur = hz[objKey] || {}
+            const lo = cur[minK] != null ? cur[minK] : dMin
+            const hi = cur[maxK] != null ? cur[maxK] : dMax
+            return h('div', { style: { display: 'flex', alignItems: 'center', gap: 4 } },
+              h('input', {
+                style: { ...inputStyle, width: 64, textAlign: 'right' },
+                type: 'number',
+                value: lo,
+                onChange: (e) => setNested(objKey, { [minK]: Number(e.target.value) }),
+              }),
+              h('span', { style: { color: C.muted, fontSize: 11 } }, '~'),
+              h('input', {
+                style: { ...inputStyle, width: 64, textAlign: 'right' },
+                type: 'number',
+                value: hi,
+                onChange: (e) => setNested(objKey, { [maxK]: Number(e.target.value) }),
+              }),
+            )
+          }
+          // resumeScroll 存的是数组（times: [3,9]），不是 min/max 两个字段
+          const rangeBoxArr = (objKey, k, d) => {
+            const raw = hz[objKey] && hz[objKey][k]
+            const cur = Array.isArray(raw) && raw.length >= 2 ? raw : d
+            return h('div', { style: { display: 'flex', alignItems: 'center', gap: 4 } },
+              h('input', {
+                style: { ...inputStyle, width: 64, textAlign: 'right' },
+                type: 'number',
+                value: cur[0],
+                onChange: (e) => setNested(objKey, { [k]: [Number(e.target.value), cur[1]] }),
+              }),
+              h('span', { style: { color: C.muted, fontSize: 11 } }, '~'),
+              h('input', {
+                style: { ...inputStyle, width: 64, textAlign: 'right' },
+                type: 'number',
+                value: cur[1],
+                onChange: (e) => setNested(objKey, { [k]: [cur[0], Number(e.target.value)] }),
+              }),
+            )
+          }
+          // criteria 顶层数字（打招呼间隔不在 humanize 里）
+          const topNum = (k, d, step) => h('input', {
+            style: { ...inputStyle, width: 76, textAlign: 'right' },
+            type: 'number',
+            step: step || 1,
+            value: criteria[k] != null ? criteria[k] : d,
+            onChange: (e) => setCrit(k, Number(e.target.value)),
+          })
+          const subTitle = (text, hint) => h('div', { style: { marginTop: 14 } },
+            h('div', { style: { fontSize: 12, fontWeight: 600, color: C.brand } }, text),
+            hint ? h('div', { style: { fontSize: 11, color: C.muted, lineHeight: 1.6, marginTop: 2 } }, hint) : null,
+          )
           return h('div', {
             style: {
               marginTop: 12,
@@ -586,11 +650,28 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
             row('动作间停顿 (ms)', rangeBox('actionPauseMs', [600, 1800]), '任意两个动作之间'),
             row('读简历停留 (秒)', rangeBox('browseDwellSec', [20, 40]), 'screen 登记后至少读这么久'),
             row('打字逐字延迟 (ms)', rangeBox('typeCharDelayMs', [60, 160]), '禁止整段粘贴'),
-            row('点击前先滚动的概率', numBox('scrollBeforeClick', 0.35, 0.05), '0~1，制造分叉'),
-            row('看了不打招呼比例', numBox('skipRate', 0.15, 0.05), '0~1，别每张都打'),
-            row('切换页面概率', numBox('wanderRate', 0.1, 0.05), '0~1'),
+            row('点击前先滚动的概率', numBox('scrollBeforeClick', 0, 0.05), '默认 0：滚动会把按钮推走，正是「点了没中」的原因'),
+            row('看了不打招呼比例', numBox('skipRate', 0.2, 0.05), '0~1，别每张都打'),
+            row('切换页面概率', numBox('wanderRate', 0.15, 0.05), '0~1'),
             row('验证码冷却 (分钟)', numBox('verifyCooldownMin', 30), '看到验证页就停这么久'),
             row('单日硬上限 (条)', numBox('dailyHardCap', 40), '额度是理论值，这个才是安全线'),
+
+            // ===== v2.29.0 新增：弧线轨迹 / 阅读滚动 / 打招呼间隔 =====
+            subTitle('鼠标弧线轨迹', '点击走贝塞尔弧线，不是两点直线。真人不会精确落在像素中心，也不会每次都走同一条路。'),
+            row('弧线采样点数', rangeBoxN('mouseArc', 'pointsMin', 'pointsMax', 8, 14), '8-14；越多越平滑，代价是慢一点'),
+            row('弧线高度 (px)', rangeBoxN('mouseArc', 'heightMin', 'heightMax', 5, 30), '垂直隆起幅度，正负随机'),
+            row('过冲概率', numBoxN('mouseArc', 'overshootProb', 0.2, 0.05), '0~1；超一点再回拉，真人常见'),
+            row('过冲距离 (px)', rangeBoxN('mouseArc', 'overshootMin', 'overshootMax', 5, 10)),
+            row('落点微抖 (px)', numBoxN('mouseArc', 'landJitterPx', 2), '最后落点再随机一下'),
+
+            subTitle('在线简历滚动', '固定 3 次 × 2-4 行是稳定指纹。真实阅读次数取决于简历长短，所以次数/幅度/停顿全部区间随机。'),
+            row('滚动次数', rangeBoxArr('resumeScroll', 'times', [3, 9]), '3-9；简历长就多滚几下'),
+            row('每次滚动 (行)', rangeBoxArr('resumeScroll', 'amount', [2, 6])),
+            row('每次停顿 (ms)', rangeBoxArr('resumeScroll', 'pauseMs', [600, 3000]), '模型思考的时间也算在这里'),
+
+            subTitle('打招呼间隔', '从上次打完招呼开始算。读简历的时间也计入，所以实际观感比这个值短。'),
+            row('最小间隔 (秒)', topNum('greetMinGapSec', 60), '低于这个 pace 会拦住'),
+            row('最大间隔 (秒)', topNum('greetMaxGapSec', 180), '在 min~max 之间取随机值'),
           )
         })(),
 

@@ -209,12 +209,26 @@ const HUMANIZE_DEFAULT = {
   preMoveDelayMs: [120, 420],   // 预移动之间的随机停顿
   actionPauseMs: [600, 1800],   // 连续动作（点击 / 滚动 / 切换）之间的随机停顿
   hoverDwellMs: [300, 1200],    // 鼠标在目标上的停留时间（触发 mouseover / mouseenter）
-  scrollBeforeClick: 0.35,      // 点击前先滚动一下的概率
+  scrollBeforeClick: 0,         // v2.29.0 默认关闭：滚动会把按钮推走，正是「点了没中」的根因；分叉改用 wanderRate
   browseDwellSec: [20, 40],
   // v2.14.0：看在线简历时逐步下滑（readPlan 用）
-  resumeScroll: { times: 3, minAmount: 2, maxAmount: 4, minPauseMs: 800, maxPauseMs: 2000 },     // 点开在线简历后的阅读停留
-  skipRate: 0.15,               // 「看了但不打招呼」的比例，制造行为分叉
-  wanderRate: 0.1,              // 每 N 条招呼后切去沟通页再切回来的概率
+  // v2.29.0：次数 / 滚动量 / 停顿全部改为区间随机——固定 3 次 × 2-4 行是稳定指纹
+  resumeScroll: { times: [3, 9], amount: [2, 6], pauseMs: [600, 3000] },
+  // v2.29.0：鼠标弧线轨迹（clickPlan 用）
+  // 二次贝塞尔：控制点垂直偏移 heightMin~heightMax（正负随机），采样 pointsMin~pointsMax 个点，
+  // 速度先快后慢，落到目标前有 overshootProb 概率过冲再回拉，落点再 ±landJitterPx 微抖。
+  mouseArc: {
+    pointsMin: 8,
+    pointsMax: 14,
+    heightMin: 5,
+    heightMax: 30,
+    overshootProb: 0.2,
+    overshootMin: 5,
+    overshootMax: 10,
+    landJitterPx: 2,
+  },
+  skipRate: 0.2,                // v2.29.0：0.15 → 0.2，「看了但不打招呼」多一些分叉
+  wanderRate: 0.15,             // v2.29.0：0.1 → 0.15，切去沟通页再切回的概率
   typeCharDelayMs: [60, 160],   // 打字逐字延迟；不要整段粘贴
   verifyCooldownMin: 30,        // 遇到 passport 验证码后的强制冷却分钟数
   dailyHardCap: 40,             // 单账号单日硬上限（80 是理论额度，不是安全量）
@@ -328,6 +342,18 @@ function requireScreenForGreet(state, jobId, args) {
   if (have < need) {
     return `刚登记简历只过了 ${Math.round(have)} 秒，至少要看满 ${need} 秒再打招呼`
   }
+  // v2.30.0：screen 有效期——「看简历」和「打招呼」必须是连续动作。
+  // 只有下限（≥20 秒）会放行「2.5 小时前看过、现在只点一下打招呼」这种序列，
+  // 而真实招聘者不会这样：看完要么当时聊，要么过几天再说，不会隔很久回来只点一个按钮。
+  const jobRec = state.jobs && state.jobs[jobId]
+  const ttlMin = jobRec && jobRec.criteria && jobRec.criteria.screenTtlMin != null
+    ? Number(jobRec.criteria.screenTtlMin)
+    : 10
+  if (ttlMin > 0 && have > ttlMin * 60) {
+    const mins = Math.round(have / 60)
+    return `这份简历是 ${mins} 分钟前看的（screen 有效期 ${ttlMin} 分钟）。` +
+      `打招呼和看简历必须是连续动作：请重新点开他的在线简历确认一遍，再调 screen 刷新时间戳，然后打招呼。`
+  }
   sc.consumedAt = nowISO()
   return null
 }
@@ -372,6 +398,12 @@ function requireReplyModeForStage(state, jobId, stage) {
 function requireChatContext(state, job, jobId, stage) {
   const modeErr = requireReplyModeForStage(state, jobId, stage)
   if (modeErr) return modeErr
+  // v2.30.1：只有沟通阶段（CHAT_ONLY_STAGES）才要求 chatScope。
+  // greeted / new / qualified / rejected / pending / stale 都发生在推荐页，
+  // 拿沟通页的作用域去拦它们是错的——推荐页根本没有「职位下拉筛选」这个东西。
+  // 这条曾经把「打完招呼把 stage 改成 greeted」直接拦死，导致 markGreet 记了计数
+  // 但台账里 5 个人全停在 new、greetedAt 全是空。
+  if (!CHAT_ONLY_STAGES.includes(String(stage || ''))) return null
   return requireChatScope(state, job, jobId)
 }
 
@@ -465,6 +497,9 @@ function defaultCriteria() {
     replyRules: REPLY_RULES_DEFAULT,
     chatScopeTtlMin: 120,
     screenMinReadSec: 20,
+    // v2.30.0：screen 有效期（分钟）。打招呼距 screen 登记超过这个值就要求重新看一遍。
+    // 0 = 关闭该检查（只保留「至少看满 20 秒」的下限）。
+    screenTtlMin: 10,
     workflow: WORKFLOW_DEFAULT,
   }
 }
@@ -3578,11 +3613,28 @@ async function runAction(args) {
       todayCount.roundGreets += times
       todayCount.lastGreetAt = nowISO()
       todayCount.browses = 0
+      // v2.30.2：打完招呼直接把台账推进到 greeted。
+      // 原来 markGreet 只加计数器、不碰 candidate，导致「记了 5 条招呼，台账里 5 个人全停在 new、
+      // greetedAt 全是空」——要靠 Agent 事后补一次 upsert，而那次 upsert 又被 chatScope 拦死。
+      const greetBossId = args.bossId || (args.name ? `${args.name}|${args.company || '-'}` : '')
+      let touchedSeq = null
+      if (greetBossId) {
+        const candKeyHit = candKey(jobId, greetBossId)
+        const cand = state.candidates[candKeyHit]
+        if (cand) {
+          cand.stage = 'greeted'
+          if (!cand.greetedAt) cand.greetedAt = nowISO()
+          cand.updatedAt = nowISO()
+          touchedSeq = cand.seq || null
+        }
+      }
       const roundTarget = c.roundGreetSize || 15
       const result = {
         ok: true,
         jobId,
         date: today,
+        // v2.30.2：返回被推进的台账序号（null = 台账里没这个人，说明漏了 screen）
+        seq: touchedSeq,
         greeted: todayCount.greets,
         remaining: Math.max(0, c.greetQuotaPerDay - todayCount.greets),
         nextWaitSec,
@@ -4212,6 +4264,10 @@ async function runAction(args) {
         stage: existing.stage || 'new',
         screenedAt: rec.at,
         screenProjects: rec.projects,
+        // v2.30.2：evaluate 读的是 candidate.project（项目关键词匹配用的就是它），
+        // 而 screen 原来只写 screenProjects，导致「看过简历但项目关键词永远未命中」，
+        // 5 个人 fit 全是 D。这里同时写一份到 project。
+        project: existing.project || rec.projects,
         screenDecision: rec.decision,
         updatedAt: now,
       }
@@ -4430,23 +4486,46 @@ async function runAction(args) {
       const hz = humanizeOf(job.criteria)
       const cfg = hz.resumeScroll || {}
       const rnd = (a, b) => Math.round(a + Math.random() * (b - a))
-      const times = Math.max(1, Math.min(6, Math.round(Number(args.times) || cfg.times || 3)))
-      const minAmt = cfg.minAmount || 2
-      const maxAmt = cfg.maxAmount || 4
-      const minPause = cfg.minPauseMs || 800
-      const maxPause = cfg.maxPauseMs || 2000
-      const steps = []
-      for (let i = 0; i < times; i++) {
-        steps.push({ type: 'scroll', direction: 'down', amount: rnd(minAmt, maxAmt), note: `第 ${i + 1}/${times} 次往下滑一段` })
-        steps.push({ type: 'wait', durationMs: rnd(minPause, maxPause), note: '停一下读这一段' })
+      // v2.29.0：次数 / 滚动量 / 停顿全部区间随机——固定 3 次 × 固定 2-4 行是稳定的行为指纹，
+      // 真人看到 10 年经验的人会多翻几下、看应届生两下就走。
+      const toRange = (v, dmin, dmax) => {
+        if (Array.isArray(v) && v.length >= 2) return [Number(v[0]), Number(v[1])]
+        const one = Number(v)
+        if (Number.isFinite(one) && one > 0) return [one, one]
+        return [dmin, dmax]
       }
-      steps.push({ type: 'scroll', direction: 'up', amount: 12, note: '看完回滚到顶部，再判定/再点打招呼' })
+      const timesRange = toRange(cfg.times, 3, 9)
+      // 调用方第二次进来时带上上一段返回的 times，保证分段之间总次数一致
+      const explicit = Math.round(Number(args.times) || 0)
+      const times = Math.max(1, Math.min(15, explicit > 0 ? explicit : rnd(timesRange[0], timesRange[1])))
+      const amtRange = toRange(cfg.amount != null ? cfg.amount : (cfg.minAmount != null ? [cfg.minAmount, cfg.maxAmount || cfg.minAmount] : null), 2, 6)
+      const pauseRange = toRange(cfg.pauseMs != null ? cfg.pauseMs : (cfg.minPauseMs != null ? [cfg.minPauseMs, cfg.maxPauseMs || cfg.minPauseMs] : null), 600, 3000)
+      // v2.29.0 分段：让模型思考夹在两次滚动之间，页面停留被拉长而中间有真实操作
+      const partSize = Math.max(1, Math.min(6, Math.round(Number(args.partSize) || 3)))
+      const part = Math.max(1, Math.round(Number(args.part) || 1))
+      const start = (part - 1) * partSize
+      const end = Math.min(times, start + partSize)
+      const totalParts = Math.ceil(times / partSize)
+      const steps = []
+      for (let i = start; i < end; i++) {
+        steps.push({ type: 'scroll', direction: 'down', amount: rnd(amtRange[0], amtRange[1]), note: `第 ${i + 1}/${times} 次往下滑` })
+        steps.push({ type: 'wait', durationMs: rnd(pauseRange[0], pauseRange[1]), note: '停一下读这一段' })
+      }
+      const isLast = end >= times
+      if (isLast) steps.push({ type: 'scroll', direction: 'up', amount: 15, note: '看完回滚到顶部，再判定/再点打招呼' })
       return {
         ok: true,
         jobId,
         times,
+        part,
+        partSize,
+        totalParts,
+        isLast,
         steps,
-        usage: '打开在线简历后照 steps 顺序执行：scroll 到简历正文中部→wait→重复。滑完再判定、再 clickPlan 点招呼。',
+        nextHint: isLast
+          ? '滑完了 → 调 screen 登记（projects 写简历原文）'
+          : `还有第 ${part + 1}/${totalParts} 段：先停一下（模型思考/真实阅读），再调 readPlan part=${part + 1} times=${times}`,
+        usage: '按 steps 顺序执行。不是最后一段就停一下再要下一段——不要一次滚完，模型思考的时间正好是阅读停留。',
         humanize: hz,
       }
     })
@@ -4474,7 +4553,11 @@ async function runAction(args) {
     return { ok: true, jobId, tab, ...hit, browseOrder: order }
   }
 
-  // v2.12.0：生成「拟人点击计划」—— 给定控件坐标，返回带随机偏移、预移动、停留、后置停顿的动作序列
+  // v2.29.0：拟人点击计划改为「弧线轨迹」——原来只有 2 段直线 + 固定精度落点，
+  // 每个按钮的点击路径在事件流里长得一模一样，这是稳定的机器指纹。
+  // 新算法：二次贝塞尔弧线（控制点垂直随机偏移）→ 8-14 点采样 → 先快后慢的间隔 →
+  // 20% 过冲再回拉 → 落点 ±2px 微抖 → 悬停 300-1200ms → 点击。
+  // 去掉 scrollBeforeClick：它会把页面滚动、按钮跟着移动，正是「点了没中」的原因。
   if (action === 'clickPlan') {
     return withState((state) => {
       const { job } = resolveJob(state, jobId)
@@ -4485,39 +4568,78 @@ async function runAction(args) {
         return { ok: false, error: 'clickPlan 需要 x / y（当前截图的像素坐标）' }
       }
       const rnd = (a, b) => Math.round(a + Math.random() * (b - a))
+      const rf = (a, b) => a + Math.random() * (b - a)
       const pair = (v, dflt) => (Array.isArray(v) && v.length >= 2 ? [Number(v[0]), Number(v[1])] : dflt)
       const off = Math.max(0, Number(hz.clickOffsetPx) || 0)
       const tx = x + rnd(-off, off)
       const ty = y + rnd(-off, off)
-      const pm = pair(hz.preMoveDelayMs, [120, 420])
       const hv = pair(hz.hoverDwellMs, [300, 1200])
       const ap = pair(hz.actionPauseMs, [600, 1800])
-      const n = Math.max(0, Math.min(4, Number(hz.preMoveCount) || 0))
-      if (n > 0 && Math.random() < Number(hz.scrollBeforeClick || 0)) {
-        // 以配置的概率先滚一下，制造额外的行为分叉
-      }
+      const arc = hz.mouseArc || {}
+      const ptsMin = Number(arc.pointsMin) || 8
+      const ptsMax = Number(arc.pointsMax) || 14
+      const arcMin = Number(arc.heightMin) || 5
+      const arcMax = Number(arc.heightMax) || 30
+      const overP = arc.overshootProb != null ? Number(arc.overshootProb) : 0.2
+      const overMin = Number(arc.overshootMin) || 5
+      const overMax = Number(arc.overshootMax) || 10
+      const jitter = Math.max(0, arc.landJitterPx != null ? Number(arc.landJitterPx) : 2)
+      const hasFrom = Number.isFinite(Number(args.fromX)) && Number.isFinite(Number(args.fromY))
+      const fx = hasFrom ? Number(args.fromX) : x + rnd(-260, 260)
+      const fy = hasFrom ? Number(args.fromY) : y + rnd(-180, 180)
+      const n = Math.max(4, Math.min(20, rnd(ptsMin, ptsMax)))
+      const dx = tx - fx
+      const dy = ty - fy
+      const len = Math.hypot(dx, dy) || 1
+      const pxv = -dy / len
+      const pyv = dx / len
+      const h = rf(arcMin, arcMax) * (Math.random() < 0.5 ? 1 : -1)
+      const cx = (fx + tx) / 2 + pxv * h
+      const cy = (fy + ty) / 2 + pyv * h
       const steps = []
-      for (let i = 0; i < n; i++) {
-        steps.push({
-          type: 'mouse_move',
-          to: [x + rnd(-70, 70), y + rnd(-70, 70)],
-          waitMs: rnd(pm[0], pm[1]),
-        })
+      for (let i = 1; i <= n; i++) {
+        const t = i / n
+        const mt = 1 - t
+        const bx = mt * mt * fx + 2 * mt * t * cx + t * t * tx
+        const by = mt * mt * fy + 2 * mt * t * cy + t * t * ty
+        // 先快后慢：t 越大间隔越长，再叠 ±3ms 抖动
+        const waitMs = Math.max(4, Math.round(8 + 34 * t * t + rf(-3, 3)))
+        steps.push({ type: 'mouse_move', to: [Math.round(bx), Math.round(by)], waitMs })
       }
-      steps.push({ type: 'mouse_move', to: [tx, ty], waitMs: rnd(hv[0], hv[1]) })
-      steps.push({ type: 'left_click', at: [tx, ty] })
-      if (Math.random() < Number(hz.scrollBeforeClick || 0)) {
-        steps.unshift({ type: 'scroll', note: '按配置概率先滚一下再点（制造分叉）', waitMs: rnd(ap[0], ap[1]) })
+      let overshot = null
+      if (Math.random() < overP) {
+        overshot = [
+          tx + rnd(overMin, overMax) * (dx >= 0 ? 1 : -1),
+          ty + rnd(overMin, overMax) * (dy >= 0 ? 1 : -1),
+        ]
+        steps.push({ type: 'mouse_move', to: overshot, waitMs: rnd(40, 90) })
+        steps.push({ type: 'mouse_move', to: [tx, ty], waitMs: rnd(60, 140) })
       }
+      const jx = tx + rnd(-jitter, jitter)
+      const jy = ty + rnd(-jitter, jitter)
+      steps.push({ type: 'mouse_move', to: [jx, jy], waitMs: rnd(hv[0], hv[1]) })
+      steps.push({ type: 'left_click', at: [jx, jy] })
       return {
         ok: true,
         jobId,
-        from: [x, y],
+        from: [fx, fy],
+        fromGiven: hasFrom,
         target: [tx, ty],
         offsetPx: [tx - x, ty - y],
+        arc: {
+          points: n,
+          heightPx: Math.round(h),
+          control: [Math.round(cx), Math.round(cy)],
+          overshoot: overshot,
+          landAt: [jx, jy],
+        },
         steps,
+        actionCount: steps.length,
         postPauseMs: rnd(ap[0], ap[1]),
-        usage: '按 steps 顺序执行：每次 mouse_move 后等 waitMs，再执行 left_click；点完停 postPauseMs 再做下一个动作。不要直接点控件中心。',
+        note: hasFrom
+          ? '起点用的是你给的当前鼠标位置'
+          : '未给 fromX/fromY，起点按目标附近随机取值（轨迹仍是弧线）。要更准就先调一次 computer cursor_position 拿真实起点',
+        usage: '按 steps 顺序执行：每个 mouse_move 后等 waitMs，最后 left_click；点完停 postPauseMs。弧线点较多，建议一个 computer_batch 全部执行。',
         humanize: hz,
       }
     })
