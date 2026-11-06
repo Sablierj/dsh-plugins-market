@@ -1,0 +1,35 @@
+{
+  "name": "@local/dsh-plugin-pdd-workbench",
+  "version": "0.8.0",
+  "private": true,
+  "type": "module",
+  "description": "拼多多工作台：待发货/已发货订单导出到本机 SQLite（订单号、物流单号、商品、数量、店铺、收货人、手机号、地址），并与闲鱼订单智能核对、生成批量发货模板。",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "src",
+    "scripts",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  },
+  "scripts": {
+    "test": "node --test test/normalize.test.mjs test/apply.test.mjs test/xianyu.test.mjs test/ali1688.test.mjs test/store.test.mjs test/audit.test.mjs test/platform-status.test.mjs"
+  }
+}

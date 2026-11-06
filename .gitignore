@@ -1,0 +1,6 @@
+.tmp/
+data/
+exports/
+*.log
+
+*.png

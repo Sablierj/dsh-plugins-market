@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Pinduoduo Workbench",
+    "description": "Export Pinduoduo 'pending receipt' orders into a local SQLite database: order no, tracking no, goods and quantity, shop, receiver, phone, address. Human-paced, never bypasses captchas."
+  }
+}
