@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Memory Service (TencentDB Agent Memory)",
+    "description": "Bridge to Tencent's open-source agent memory: recall and save long-term facts, with a sidebar panel for status, settings, link diagnosis, on/off and a recall preview."
+  }
+}

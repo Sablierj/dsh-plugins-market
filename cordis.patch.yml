@@ -1,0 +1,8 @@
+- insert:
+    - id: memory-bridge
+      name: '@local/dsh-plugin-memory-bridge'
+      config:
+        # 面板保存的配置会覆盖这里（落在 DSH_HOME/storages/memory-bridge.json）。
+        # 这里只写「首次安装时的默认值」，改完不用再动这个文件。
+        enabled: true
+        autoInject: false

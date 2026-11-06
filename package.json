@@ -1,0 +1,33 @@
+{
+  "name": "@local/dsh-plugin-memory-bridge",
+  "version": "0.10.1",
+  "private": true,
+  "type": "module",
+  "description": "TencentDB Agent Memory 记忆桥：四工具 + 侧边栏三页签（概览/浏览 L0-L3/设置），含自动捕获、三方状态、记忆代理开关、本地脱敏日志；走 HTTP 隧道，自动识别 v3/v1。",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  },
+  "scripts": {
+    "test": "node test/run-tests.mjs"
+  }
+}
