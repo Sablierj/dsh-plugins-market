@@ -1,0 +1,12 @@
+# Profile patch for dsh-plugin-sif-ops.
+#
+# 一行 host 就够：工具、页面、JSON API 都由 index.js 一处注册，`config.plugin`
+# 留作将来拆平面用（与 amazon-ops 的约定一致）。
+#
+# `name` 是绝对路径：app-boot 会把绝对说明符用 pathToFileURL 解析，所以它跟着
+# 这个文件所在的目录走。改机时只改这一行。
+- insert:
+    - id: sif-ops
+      name: 'D:\deepseek-harness-h\workspace\dsh-plugins\sif-ops\index.js'
+      config:
+        plugin: workbench

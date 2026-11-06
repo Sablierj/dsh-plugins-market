@@ -1,0 +1,18 @@
+{
+  "name": "dsh-plugin-sif-ops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SIF 数据台：把 SIF MCP（mcp.sif.com）的流量/广告/关键词/市场数据落到本地 SQLite，按 ASIN 与时间维度建模，供页面与 Agent 共用。",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["index.js", "lib", "src", "cordis.patch.yml"],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web" }
+  }
+}
