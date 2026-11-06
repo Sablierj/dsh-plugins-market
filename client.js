@@ -300,7 +300,7 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
 
     // ---------------------------------------------------------------- 设置面板
 
-    function JobSettings({ job, onSave, onCancel, busy, error }) {
+    function JobSettings({ job, jobs, onSave, onCancel, busy, error }) {
       const c0 = job.criteria || {}
       const [name, setName] = useState(job.name || '')
       const [criteria, setCriteria] = useState({ ...c0 })
@@ -311,6 +311,13 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
       })
       const [highlights, setHighlights] = useState(job.highlights || [])
       const [flow, setFlow] = useState((job.flow || []).map((s) => ({ ...s })))
+      // v2.32.0：流程复用 —— 选一个别的岗位当参考，把它的流程逐条追加进来，或者整体替换。
+      // 数据现成：面板拿到的 data.jobs 是 jobPublic() 的返回，每个岗位都带完整 flow，
+      // 所以这里不用额外请求，切换参考岗位是纯本地操作。
+      const allJobs = Array.isArray(jobs) ? jobs : []
+      const [refJobId, setRefJobId] = useState('')
+      const refJob = allJobs.find((j) => j.id === refJobId) || null
+      const refFlow = Array.isArray(refJob && refJob.flow) ? refJob.flow : []
       // v2.11.0：工作流程编辑（招聘 / 回话两套动作序列）
       const [wfTab, setWfTab] = useState('recruit')
 
@@ -348,6 +355,43 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
         enabled: true,
         template: '',
       }]))
+
+      // v2.32.0：参考流程 → 当前流程。
+      // key 冲突自动加后缀，不拒绝 —— 参考岗位的 key 大概率一样（greet/askResume/ackResume…），
+      // 拒绝会让「全部追加」这个按钮几乎不可用。
+      const uniqueFlowKey = (baseKey, used) => {
+        const base = String(baseKey || 'step')
+        let k = base
+        let n = 2
+        while (used.has(k)) { k = `${base}_${n}`; n += 1 }
+        return k
+      }
+      const asFlowStep = (s, key) => ({
+        key,
+        name: String(s.name || s.key || ''),
+        enabled: s.enabled !== false,
+        template: String(s.template || ''),
+      })
+      const appendRefStep = (refStep) => setFlow((prev) => {
+        const used = new Set(prev.map((s) => s.key))
+        return prev.concat([asFlowStep(refStep, uniqueFlowKey(refStep.key, used))])
+      })
+      const appendAllRef = () => setFlow((prev) => {
+        const used = new Set(prev.map((s) => s.key))
+        const add = refFlow.map((s) => {
+          const key = uniqueFlowKey(s.key, used)
+          used.add(key)
+          return asFlowStep(s, key)
+        })
+        return prev.concat(add)
+      })
+      // 唯一会丢东西的按钮，所以必须确认，而且确认文案要具体到条数
+      const replaceWithRef = () => {
+        if (!refFlow.length || !refJob) return
+        const msg = `用「${refJob.name}」的 ${refFlow.length} 个步骤替换当前 ${flow.length} 个步骤？\n\n当前流程里未保存的改动会丢失。`
+        if (typeof window !== 'undefined' && window.confirm && !window.confirm(msg)) return
+        setFlow(refFlow.map((s, i) => asFlowStep(s, String(s.key || `step${i + 1}`))))
+      }
       const onClose = () => {
         if (dirty && typeof window !== 'undefined' && window.confirm && !window.confirm('有未保存的改动，确定收起吗？')) return
         onCancel()
@@ -484,7 +528,26 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
 
         // 话术流程
         h('div', null,
-          h('div', { style: { fontSize: 12, color: C.muted, marginBottom: 4 } }, '话术流程'),
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 } },
+            h('div', { style: { fontSize: 12, color: C.muted } }, '话术流程'),
+            h('div', { style: { flex: 1 } }),
+            (() => {
+              const others = allJobs.filter((j) => j.id !== job.id)
+              if (!others.length) return null
+              return h('label', { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.muted } },
+                '参考岗位',
+                h('select', {
+                  style: { ...inputStyle, width: 220, fontSize: 12 },
+                  value: refJobId,
+                  onChange: (e) => setRefJobId(e.target.value),
+                  title: '选一个别的岗位，把它的话术流程搬过来用（只读展示，不会动它）',
+                },
+                  h('option', { value: '' }, '不参考'),
+                  others.map((j) => h('option', { key: j.id, value: j.id }, j.name)),
+                ),
+              )
+            })(),
+          ),
           h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
             flow.map((step, i) =>
               h('div', {
@@ -529,6 +592,61 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
             button('＋ 新增步骤', addFlow, false, false, 'flow-add', '在话术流程末尾追加一个步骤'),
             h('div', { style: { fontSize: 11, color: C.muted } }, `可用变量：${TEMPLATE_VARS}`),
           ),
+
+          // v2.32.0：参考流程（只读）。放在当前流程下方 —— 「我现在的流程在上面，参考的在下面」。
+          (refJob && refFlow.length)
+            ? h('div', {
+              style: {
+                marginTop: 12,
+                padding: '10px 12px',
+                borderRadius: 8,
+                background: C.layer2,
+                border: `1px dashed ${C.border2}`,
+              },
+            },
+            h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 } },
+              h('span', { style: { fontSize: 12, fontWeight: 600, color: C.brand } }, `参考：${refJob.name}`),
+              h('span', { style: { fontSize: 11, color: C.muted } }, `· ${refFlow.length} 个步骤`),
+              h('div', { style: { flex: 1 } }),
+              button('全部追加到末尾', appendAllRef, false, false, 'flow-ref-all',
+                '把参考流程整体追加到当前流程末尾，重名的 key 自动加后缀'),
+              button('⇄ 用这份替换', replaceWithRef, false, false, 'flow-ref-replace',
+                '用参考流程覆盖当前流程（会丢当前未保存的改动，会二次确认）'),
+            ),
+            h('div', { style: { fontSize: 11, color: C.muted, marginBottom: 8, lineHeight: 1.5 } },
+              '只读展示，不会改动参考岗位。变量（如 {jobTitle}、{salary}）搬过来后按「当前岗位」的口径重新填充，不是复制参考岗位的值。'),
+            h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+              refFlow.map((s, i) =>
+                h('div', {
+                  key: `ref-${s.key || i}-${i}`,
+                  style: { padding: '6px 8px', borderRadius: 6, background: C.layer1, border: `1px solid ${C.border}` },
+                },
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginBottom: 3 } },
+                  h('span', { style: { color: C.muted, minWidth: 18 } }, `${i + 1}.`),
+                  h('span', { style: { color: C.muted, fontFamily: 'monospace' } }, s.key),
+                  h('span', { style: { fontWeight: 600 } }, s.name || ''),
+                  s.enabled === false ? h('span', { style: { color: C.warn, fontSize: 10 } }, '（已停用）') : null,
+                  h('div', { style: { flex: 1 } }),
+                  button('追加', () => appendRefStep(s), false, false, `flow-ref-add-${i}`,
+                    '把这个步骤追加到当前流程末尾'),
+                ),
+                h('div', {
+                  style: {
+                    fontSize: 11, color: C.muted, whiteSpace: 'pre-wrap',
+                    lineHeight: 1.45, maxHeight: 46, overflow: 'hidden',
+                  },
+                  title: s.template || '',
+                },
+                  (function () {
+                    const t = String(s.template || '')
+                    if (!t) return '（空模板）'
+                    return t.length > 100 ? `${t.slice(0, 100)}…` : t
+                  })(),
+                ),
+                )),
+            ),
+            )
+            : null,
         ),
 
         // ===== v2.12.0：防风控（拟人化）参数，全部可配 =====
@@ -2381,6 +2499,7 @@ function scoreText(score, grade) {      if (score == null || grade === 'NA') {
           ? h(JobSettings, {
             key: `settings-${settingsJob.id}-${settingsNonce}`,
             job: settingsJob,
+            jobs,
             busy,
             error: saveError,
             onSave: async (payload) => {

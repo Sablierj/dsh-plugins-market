@@ -213,7 +213,9 @@ const HUMANIZE_DEFAULT = {
   browseDwellSec: [20, 40],
   // v2.14.0：看在线简历时逐步下滑（readPlan 用）
   // v2.29.0：次数 / 滚动量 / 停顿全部改为区间随机——固定 3 次 × 2-4 行是稳定指纹
-  resumeScroll: { times: [3, 9], amount: [2, 6], pauseMs: [600, 3000] },
+  // v2.31.0：滚动次数从 [3,9] 降到 [3,5]。9 次滚动要 20 秒以上，但 BOSS 侧边栏一屏能看大半，
+  // 3-5 次足够覆盖整份简历，多出来的是纯等待。
+  resumeScroll: { times: [3, 5], amount: [2, 6], pauseMs: [600, 3000] },
   // v2.29.0：鼠标弧线轨迹（clickPlan 用）
   // 二次贝塞尔：控制点垂直偏移 heightMin~heightMax（正负随机），采样 pointsMin~pointsMax 个点，
   // 速度先快后慢，落到目标前有 overshootProb 概率过冲再回拉，落点再 ±landJitterPx 微抖。
@@ -870,6 +872,13 @@ function migrateCandidate(raw, jobId, bossId) {
     interview: c.interview && typeof c.interview === 'object' ? { ...c.interview } : {},
     skills: Array.isArray(c.skills) ? c.skills.map(String) : [],
     project: String(c.project || ''),
+    // v2.31.2：方向分类四个字段之前只存在于内存，落盘后 readDisk → migrate →
+    // migrateCandidate 的白名单里没有它们，重启即丢（文件里有、内存里没有，
+    // 表现为 stats.byTrack 全员未分类，而且改文件 + reload 也救不回来）。
+    track: String(c.track || ''),
+    trackAuto: String(c.trackAuto || ''),
+    trackLabel: String(c.trackLabel || ''),
+    trackScores: c.trackScores && typeof c.trackScores === 'object' ? { ...c.trackScores } : {},
     note: String(c.note || ''),
     keyInfo: String(c.keyInfo || ''),
     stage,
@@ -974,6 +983,23 @@ function migrate(parsed) {
     const result = evaluate(cand, job.criteria)
     cand.matchHits = result.hits
     cand.matchGaps = result.gaps
+  }
+
+  // ---- v2.32.1：给历史数据补算方向分类 ----
+  // 只补「空的」，不覆盖任何已有值 —— 有人可能手工指定过 track，那个不能被机器算的结果盖掉。
+  // 这一段是 reload 能救回 byTrack 的原因：空值落盘之后，光改代码没用，
+  // 必须有人在读盘后重新算一遍。
+  for (const cand of Object.values(candidates)) {
+    if (cand.trackAuto || cand.track) continue
+    const job = jobs[cand.jobId]
+    if (!job) continue
+    if (!cand.project && !(cand.skills && cand.skills.length)) continue
+    const result = evaluate(cand, job.criteria)
+    if (result.track) {
+      cand.trackAuto = result.track
+      cand.trackLabel = result.trackLabel
+      cand.trackScores = result.trackScores
+    }
   }
 
   // ---- v2.1：老数据补算派生评分（techFit* / value*）。只写派生字段，业务字段一律不动 ----
@@ -1112,6 +1138,7 @@ function counterFor(state, jobId, date) {
       lastGreetAt: null,
       lastBrowseAt: null,
       restUntil: null,
+      verifyUntil: null,
     }
   }
   const counter = state.counters[key]
@@ -1120,6 +1147,9 @@ function counterFor(state, jobId, date) {
   if (counter.roundGreets == null) counter.roundGreets = 0
   if (counter.roundsCompleted == null) counter.roundsCompleted = 0
   if (counter.restUntil === undefined) counter.restUntil = null
+  // v2.31.7：验证码冷却。verifyCooldownMin 原来只写在提示词里，没有代码强制——
+  // Agent 看到了验证码也照样能调 markGreet，等于靠自觉。这里让它变成硬约束。
+  if (counter.verifyUntil === undefined) counter.verifyUntil = null
   return counter
 }
 
@@ -2713,11 +2743,23 @@ function greetPaceError(state, jobId, today, nowMs) {
   const count = counterFor(state, jobId, today)
   const hz = humanizeOf(c)
   const quota = Math.min(Number(c.greetQuotaPerDay) || 0, Number(hz.dailyHardCap) || Number.MAX_SAFE_INTEGER)
+  // v2.31.7：验证码冷却优先于一切 —— 看到 passport/verify.html 之后必须硬停，
+  // 这条放在最前面，任何别的判断都不应该让它放行。
+  if (count.verifyUntil && new Date(count.verifyUntil).getTime() > nowMs) {
+    const leftMin = Math.ceil((new Date(count.verifyUntil).getTime() - nowMs) / 60000)
+    return `⚠️ 验证码冷却中，还有 ${leftMin} 分钟（到 ${new Date(count.verifyUntil).toLocaleTimeString()}）。验证码必须人工过，冷却期内不要任何操作；恢复后节奏减半。`
+  }
   if (count.greets >= quota) return `今日已达到安全上限 ${quota} 条，停止打招呼`
   if (count.restUntil && new Date(count.restUntil).getTime() > nowMs) {
     return `本轮休息中，到 ${new Date(count.restUntil).toLocaleTimeString()} 后再继续`
   }
-  if (count.roundGreets >= (c.roundGreetSize || 15)) return '本轮已打满，先回 pace 进入休息，不要连续发'
+  // v2.31.4：这条错误原来只说「本轮已打满」，但 markGreet 是「先发后记」——
+  // BOSS 的打招呼按钮点下去消息就已经发出去了，markGreet 只是记账。
+  // 所以这个错误出现时，招呼很可能已经发了，只是没记上账。
+  // 原来的文案会让人以为没发，于是重复点一次，导致对方收到两条招呼。
+  if (count.roundGreets >= (c.roundGreetSize || 15)) {
+    return '本轮已打满，未记账。⚠️ 注意：如果你刚刚已经在页面上点过「打招呼」并且按钮变成了「继续沟通」，那条消息其实已经发出去了，只是没记上账——请不要再点一次，改用 upsert stage=greeted 补记（备注里写明「招呼已发·记账被拦」），然后回 pace 进入休息。'
+  }
   const elapsed = count.lastGreetAt ? (nowMs - new Date(count.lastGreetAt).getTime()) / 1000 : Infinity
   const minGap = c.greetMinGapSec == null ? 300 : Number(c.greetMinGapSec)
   if (elapsed < minGap) return `距上一条仅 ${Math.round(elapsed)} 秒，还需等 ${Math.ceil(minGap - elapsed)} 秒；可继续阅读下一份简历`
@@ -3396,7 +3438,10 @@ async function runAction(args) {
         cand = migrateCandidate({
           name: args.name || '',
           company: args.company || '',
-          stage: 'new',
+          // v2.31.1：view 是「看过但不打算打招呼」，原来置 new 会污染 byStage.new 漏斗
+          // 和 next 待办队列（每天刷一遍推荐页，new 就膨胀一批假待办）。
+          // 置 stale（不再跟进）更贴语义，也不会被 next 捡起来。
+          stage: 'stale',
           note: '',
           firstSeenAt: nowISO(),
         }, jobId, bossId)
@@ -3443,8 +3488,72 @@ async function runAction(args) {
           target: job ? job.criteria.greetQuotaPerDay : 0,
           done: scopeAll ? 0 : ((counterPeek(state, targetJob, today) || {}).greets || 0),
         },
+        // v2.31.5：greetedAt 存的是 UTC ISO 串，用本地日期去 StartsWith 会漏——
+        // 北京时间 00:00~08:00 的记录落在前一个 UTC 日，早上的记录全查不到。
+        // 这个字段按本地时区正确统计「今天打过招呼的人」，省得每次手写时区转换。
+        todayGreeted: scopeAll
+          ? null
+          : Object.values(state.candidates || {}).filter((x) => {
+            if (!x || x.jobId !== targetJob || !x.greetedAt) return false
+            const d = new Date(x.greetedAt)
+            if (Number.isNaN(d.getTime())) return false
+            const p = (n) => String(n).padStart(2, '0')
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` === today
+          }).length,
       }
     })
+  }
+
+  // v2.31.1：重新从磁盘加载 state。
+  // stateCache 一旦加载就永远用内存（ensureState 只在 null 时读盘），
+  // 所以任何直接改 pipeline.json 的操作（回填、修数据、手工迁移）都不会生效，
+  // 而且没有任何提示——只能对比文件值和 stats 返回值才能发现。这个动作就是那个开关。
+  // v2.31.7：登记「看到验证码了」。原来 verifyCooldownMin 只写在提示词里，
+  // Agent 看到了也照样能调 markGreet —— 靠自觉不是约束。这个动作把它变成台账里的事实：
+  // 写一个 verifyUntil，之后 greetPaceError 和 pace 都会拦住，直到冷却结束。
+  if (action === 'markVerify') {
+    return withState((state) => {
+      const { job } = resolveJob(state, jobId)
+      const hz = humanizeOf(job.criteria)
+      const cooldownMin = Math.max(1, Number(args.minutes) || Number(hz.verifyCooldownMin) || 30)
+      const now = Date.now()
+      const count = counterFor(state, jobId, today, now)
+      const until = new Date(now + cooldownMin * 60000).toISOString()
+      // 只在没有更晚的冷却时才写，避免重复登记把它往后推
+      if (!count.verifyUntil || new Date(until) > new Date(count.verifyUntil)) {
+        count.verifyUntil = until
+      }
+      return {
+        ok: true,
+        jobId,
+        verifyUntil: count.verifyUntil,
+        cooldownMin,
+        note: args.note ? String(args.note) : '',
+        resumeAt: new Date(count.verifyUntil).toLocaleTimeString(),
+        instruction: '冷却期内不要任何页面操作（不点、不滚、不输入）。验证码必须人工过，Agent 不得尝试。恢复后节奏减半。',
+      }
+    })
+  }
+
+  if (action === 'reload') {
+    const run = lockChain.then(async () => {
+      stateCache = null
+      const state = await ensureState()
+      const mine = Object.keys(state.candidates || {}).filter(
+        (k) => state.candidates[k] && state.candidates[k].jobId === jobId,
+      )
+      return {
+        ok: true,
+        jobId,
+        reloaded: true,
+        candidates: mine.length,
+        views: Object.keys(state.views || {}).length,
+        screens: Object.keys(state.screens || {}).length,
+        activeJobId: state.activeJobId,
+      }
+    })
+    lockChain = run.then(() => undefined, () => undefined)
+    return run
   }
 
   if (action === 'pace') {
@@ -3470,6 +3579,7 @@ async function runAction(args) {
         browse: { done: browseDone, target: browseTarget, remain: Math.max(0, browseTarget - browseDone) },
         roundsCompleted: todayCount.roundsCompleted,
         restUntil: todayCount.restUntil,
+        verifyUntil: todayCount.verifyUntil || null,
       }
 
       const restLeft = todayCount.restUntil
@@ -3482,7 +3592,14 @@ async function runAction(args) {
       let step
       let waitSec = 0
 
-      if (state.mode === 'reply') {
+      const verifyLeft = todayCount.verifyUntil
+        ? Math.ceil((new Date(todayCount.verifyUntil).getTime() - now) / 1000)
+        : 0
+      if (verifyLeft > 0) {
+        // v2.31.7：验证码冷却压过一切 —— 连 reply 模式也不该继续动页面
+        step = `⚠️ 验证码冷却中，还有 ${Math.ceil(verifyLeft / 60)} 分钟（到 ${new Date(todayCount.verifyUntil).toLocaleTimeString()}）`
+        waitSec = verifyLeft
+      } else if (state.mode === 'reply') {
         step = '「回话模式」：只进「沟通」处理回话；每条发之前先 checkReply 过边界，不要进推荐牛人打招呼'
       } else if (restLeft > 0) {
         step = `第 ${todayCount.roundsCompleted} 轮已结束，休息中（防风控）`
@@ -3497,9 +3614,23 @@ async function runAction(args) {
         const rest = (c.roundRestMinSec || 600) + Math.round(Math.random() * span)
         todayCount.roundGreets = 0
         todayCount.roundsCompleted += 1
-        todayCount.restUntil = new Date(now + rest * 1000).toISOString()
+        // v2.31.3：休息截止时间不能从「现在」算，否则 pace 每被调一次就把终点往后推。
+        // pace 是只读查询，切模式 / 面板刷新都会触发它，几次下来 restUntil 会远超
+        // roundRestMaxSec（实测出现过 68 分钟，上限才 30）。改成锚在 lastGreetAt 上，
+        // 并封顶在 lastGreetAt + roundRestMaxSec，这样重复调用是幂等的。
+        const restMs = rest * 1000
+        const anchor = todayCount.lastGreetAt ? new Date(todayCount.lastGreetAt).getTime() : now
+        const restCapMs = Math.max(0, Number(c.roundRestMaxSec) || 1800) * 1000
+        const earliestEnd = anchor + restMs
+        const latestEnd = anchor + restCapMs
+        const proposedEnd = Math.min(Math.max(now + restMs, earliestEnd), latestEnd)
+        const nextRestUntil = new Date(proposedEnd).toISOString()
+        // 幂等：只在没有 restUntil 或新值更早时才写入，避免反复调用把它推远
+        if (!todayCount.restUntil || new Date(nextRestUntil) < new Date(todayCount.restUntil)) {
+          todayCount.restUntil = nextRestUntil
+        }
         step = `本轮 ${roundTarget} 条已打满，休息 ${Math.round(rest / 60)} 分钟后开下一轮`
-        waitSec = rest
+        waitSec = Math.max(0, Math.ceil((new Date(todayCount.restUntil).getTime() - now) / 1000))
         progress.round.done = 0
         progress.round.remain = roundTarget
         progress.roundsCompleted = todayCount.roundsCompleted
@@ -3531,11 +3662,17 @@ async function runAction(args) {
         humanize: humanizeOf(c),
         gap: { minSec: c.greetMinGapSec || 300, maxSec: c.greetMaxGapSec || 720 },
         dwell: { minSec: c.browseDwellMinSec || 15, maxSec: c.browseDwellMaxSec || 60 },
+        // v2.31.7：验证码冷却期间不能建议「点开简历看」—— 那本身也是页面操作。
+        // 冷却的含义是完全不碰页面，不是「只看不点」。
         nextAction:
-          waitSec > 0
-            ? `先不动，等 ${waitSec} 秒（期间可以点开 1 张卡的在线简历看，但不要发招呼）`
-            : '可发这一条：点开 1 张卡在线简历读完 → 判定匹配 → 点「打招呼」（落点随机偏移 ±15px，不要总打同一像素）→ 立刻 markGreet 1 → 回 pace 查下一次间隔',
-        hint: waitSec > 0 ? `等待 ${waitSec} 秒（约 ${Math.max(1, Math.round(waitSec / 60))} 分钟）后再动手` : '立即执行',
+          verifyLeft > 0
+            ? `完全不要操作页面（不点、不滚、不输入、不切标签）。等 ${Math.ceil(verifyLeft / 60)} 分钟到 ${new Date(todayCount.verifyUntil).toLocaleTimeString()}，验证码必须人工过。`
+            : waitSec > 0
+              ? `先不动，等 ${waitSec} 秒（期间可以点开 1 张卡的在线简历看，但不要发招呼）`
+              : '可发这一条：点开 1 张卡在线简历读完 → 判定匹配 → 点「打招呼」（落点随机偏移 ±15px，不要总打同一像素）→ 立刻 markGreet 1 → 回 pace 查下一次间隔',
+        hint: verifyLeft > 0
+          ? `验证码冷却中，${Math.ceil(verifyLeft / 60)} 分钟后（${new Date(todayCount.verifyUntil).toLocaleTimeString()}）再动`
+          : waitSec > 0 ? `等待 ${waitSec} 秒（约 ${Math.max(1, Math.round(waitSec / 60))} 分钟）后再动手` : '立即执行',
       }
     })
   }
@@ -3815,9 +3952,14 @@ async function runAction(args) {
       next.matchGaps = evaluation.gaps
       next.matchHits = evaluation.hits
       // v2.28.0：方向分类（自动判定写 trackAuto，见 upsert 处注释）
-      next.trackAuto = evaluation.track
-      next.trackLabel = evaluation.trackLabel
-      next.trackScores = evaluation.trackScores
+      // v2.32.1：只在算出来时才覆盖。原来是无条件写，evaluate 一旦返回 null
+      // （project 太短、关键词没命中、或这个人只有 name+company），
+      // 就会把已有的正确值洗成空 —— reload 也救不回来，因为空值已经落盘了。
+      if (evaluation.track) {
+        next.trackAuto = evaluation.track
+        next.trackLabel = evaluation.trackLabel
+        next.trackScores = evaluation.trackScores
+      }
       // v2.1：派生评分随 upsert 一并落库（整数或 null，绝不写 NaN/undefined）
       next.techFitScore = evaluation.techFit.score
       next.techFitGrade = evaluation.techFit.grade
@@ -4232,6 +4374,12 @@ async function runAction(args) {
           error: `projects 只有 ${projects.length} 字，太短。把在线简历里读到的项目/职责原文写进来（≥20 字），这是「真看过」的凭据` ,
         }
       }
+      // v2.31.6：这里原来会把 projects 截断到 400 字，而且是从尾部砍。
+      // 实测踩坑：朱勇的简历第一份工作就写了 400 多字（律所短视频运营），
+      // 截断后后面「私域转化路径设计」「公域精准获客」全被砍掉，
+      // evaluate 的 19 个项目关键词一个都没命中，gaps 报「过往项目经历未见匹配项」。
+      // 截断的初衷是省 Agent 生成时间，但代价是判断失准 —— 而判断才是这个插件的目的。
+      // 现在完整存原文（存字符串不花时间，花时间的是 Agent 生成，那个省不掉）。
       const hz = humanizeOf(job.criteria)
       const dwell = (hz.browseDwellSec && hz.browseDwellSec[0]) || 20
       state.screens = Array.isArray(state.screens) ? state.screens : []
@@ -4247,6 +4395,17 @@ async function runAction(args) {
         decision: ['greet', 'skip', 'reject'].includes(args.decision) ? args.decision : 'skip',
         note: String(args.note || ''),
         dwellMinSec: Number(job.criteria.screenMinReadSec) || dwell,
+        // v2.31.0：screen 一次写全基本信息，省掉随后那次 upsert。
+        // 原来 screen 只写 project，edu/gradYear/workYears/skills/expectSalary 要再调一次 upsert，
+        // 每次多花 30-60 秒的模型思考时间。这几项在简历上都是现成的。
+        edu: args.edu ? String(args.edu) : undefined,
+        gradYear: args.gradYear ? Number(args.gradYear) : undefined,
+        workYears: args.workYears ? Number(args.workYears) : undefined,
+        expectSalary: args.expectSalary ? String(args.expectSalary) : undefined,
+        expectCity: args.expectCity ? String(args.expectCity) : undefined,
+        school: args.school ? String(args.school) : undefined,
+        skills: Array.isArray(args.skills) && args.skills.length ? args.skills : undefined,
+        xuexinSelf: ['可查', '不可查', '未说'].includes(args.xuexinSelf) ? args.xuexinSelf : undefined,
       }
       state.screens.push(rec)
       if (state.screens.length > 800) state.screens = state.screens.slice(-800)
@@ -4263,17 +4422,46 @@ async function runAction(args) {
         company: existing.company || rec.company,
         stage: existing.stage || 'new',
         screenedAt: rec.at,
-        screenProjects: rec.projects,
+        screenProjects: projects,
         // v2.30.2：evaluate 读的是 candidate.project（项目关键词匹配用的就是它），
         // 而 screen 原来只写 screenProjects，导致「看过简历但项目关键词永远未命中」，
         // 5 个人 fit 全是 D。这里同时写一份到 project。
-        project: existing.project || rec.projects,
+        // v2.31.6：改用完整原文（projects），不再用截断版。
+        project: existing.project || projects,
         screenDecision: rec.decision,
         updatedAt: now,
       }
+      // v2.31.0：screen 顺带写入的基本信息（只在传了的时候覆盖，没传就保留原值）
+      if (rec.edu) merged.edu = rec.edu
+      if (rec.gradYear) merged.gradYear = rec.gradYear
+      if (rec.workYears) merged.workYears = rec.workYears
+      if (rec.expectSalary) {
+        merged.expectSalary = rec.expectSalary
+        const m = String(rec.expectSalary).match(/(\d+)\s*[-~]\s*(\d+)\s*[kK]/)
+        if (m) {
+          merged.expectSalaryMinK = Number(m[1])
+          merged.expectSalaryMaxK = Number(m[2])
+        }
+      }
+      if (rec.expectCity) merged.expectCity = rec.expectCity
+      if (rec.school) merged.school = rec.school
+      if (rec.skills) merged.skills = rec.skills
+      if (rec.xuexinSelf) merged.xuexinSelf = rec.xuexinSelf
       if (!merged.seq) {
         job.seqCounter = (Number(job.seqCounter) || 0) + 1
         merged.seq = job.seqCounter
+      }
+      // v2.32.1：screen 写完 project/skills 之后补算一次方向分类。
+      // 原来 screen 全程不调 evaluate，新登记的人 trackAuto 一直是空；
+      // 而 upsert 里那三行又是无条件覆盖（见下方 v2.32.1 注释），
+      // 两边一凑就是「byTrack 全员未分类」，而且 reload 也救不回来。
+      if (merged.project || (merged.skills && merged.skills.length)) {
+        const ev = evaluate(merged, job.criteria)
+        if (ev.track) {
+          merged.trackAuto = ev.track
+          merged.trackLabel = ev.trackLabel
+          merged.trackScores = ev.trackScores
+        }
       }
       state.candidates[candidateKey] = merged
       return {
@@ -4426,21 +4614,48 @@ async function runAction(args) {
     const stage = String(args.stage || '').trim()
     const field = String(args.field || 'resumeAt').trim()
     const value = args.value == null ? "" : String(args.value)
-    if (!stage) return { ok: false, error: 'backfill 需要 stage' }
+    // v2.31.4：加 names 参数。原来只能按 stage 批量刷，想给某一个人补 greetedAt
+    // 就得把整个 stage 的人都刷成同一个时间戳——这会把别人已有的正确值覆盖掉。
+    const names = Array.isArray(args.names) ? args.names.map((x) => String(x || '').trim()).filter(Boolean) : null
+    if (!stage && !(names && names.length)) {
+      return { ok: false, error: 'backfill 需要 stage（按阶段批量）或 names（指定人）二选一' }
+    }
     if (!['resumeAt', 'interviewAt', 'greetedAt'].includes(field)) {
       return { ok: false, error: `backfill 只支持 resumeAt / interviewAt / greetedAt，收到 ${field}` }
     }
     return withState((state) => {
-      const { job } = resolveJob(state, jobId)
       const keys = Object.keys(state.candidates || {}).filter((k) => state.candidates[k] && state.candidates[k].jobId === jobId)
       const touched = []
+      const missed = []
       for (const k of keys) {
         const c = state.candidates[k]
-        if (!c || c.stage !== stage) continue
+        if (!c) continue
+        if (names && names.length) {
+          // 指定人模式：不看 stage，只看名字在不在名单里
+          if (!names.includes(c.name)) continue
+        } else if (c.stage !== stage) {
+          continue
+        }
         c[field] = value
-        touched.push({ seq: c.seq, name: c.name })
+        touched.push({ seq: c.seq, name: c.name, stage: c.stage })
       }
-      return { ok: true, jobId, stage, field, value, count: touched.length, touched }
+      // 指定人模式下，把没找到的名字报出来（拼错 / 不在本岗位）
+      if (names && names.length) {
+        const hit = new Set(touched.map((t) => t.name))
+        for (const n of names) if (!hit.has(n)) missed.push(n)
+      }
+      return {
+        ok: true,
+        jobId,
+        mode: names && names.length ? 'names' : 'stage',
+        stage: names && names.length ? null : stage,
+        names: names && names.length ? names : null,
+        field,
+        value,
+        count: touched.length,
+        touched,
+        ...(missed.length ? { missed } : {}),
+      }
     })
   }
 
@@ -4501,7 +4716,10 @@ async function runAction(args) {
       const amtRange = toRange(cfg.amount != null ? cfg.amount : (cfg.minAmount != null ? [cfg.minAmount, cfg.maxAmount || cfg.minAmount] : null), 2, 6)
       const pauseRange = toRange(cfg.pauseMs != null ? cfg.pauseMs : (cfg.minPauseMs != null ? [cfg.minPauseMs, cfg.maxPauseMs || cfg.minPauseMs] : null), 600, 3000)
       // v2.29.0 分段：让模型思考夹在两次滚动之间，页面停留被拉长而中间有真实操作
-      const partSize = Math.max(1, Math.min(6, Math.round(Number(args.partSize) || 3)))
+      // v2.31.0：默认不分段。原来默认 partSize=3，一次浏览要调 2-3 次 readPlan，
+      // 每次多花 30-60 秒的模型思考——分段只是把思考夹在滚动之间，代价却是成倍的工具调用。
+      // 想看分段效果就显式传 partSize=3。
+      const partSize = Math.max(1, Math.min(12, Math.round(Number(args.partSize) || 99)))
       const part = Math.max(1, Math.round(Number(args.part) || 1))
       const start = (part - 1) * partSize
       const end = Math.min(times, start + partSize)
@@ -5280,7 +5498,7 @@ export function apply(ctx) {
             type: 'string',
             enum: [
               'pace', 'upsert', 'batch', 'sweep', 'interview', 'sop', 'list', 'next', 'seen', 'export', 'config',
-              'markGreet', 'markBrowse', 'log', 'checkReply', 'screen', 'chatScope', 'clickPlan', 'readPlan', 'chatTabs', 'nextInbox', 'claim', 'backfill', 'flow', 'observe', 'completeGreet', 'backup-export', 'backup-import', 'jobs', 'selectJob', 'job',
+              'markGreet', 'markBrowse', 'markVerify', 'log', 'checkReply', 'screen', 'chatScope', 'clickPlan', 'readPlan', 'chatTabs', 'nextInbox', 'claim', 'backfill', 'flow', 'observe', 'completeGreet', 'reload', 'backup-export', 'backup-import', 'jobs', 'selectJob', 'job',
               'createJob', 'deleteJob', 'mode', 'check', 'view', 'star', 'reject', 'stats', 'evaluate', 'audit',
             ],
             description:
@@ -5309,7 +5527,7 @@ export function apply(ctx) {
           backup: { type: 'object', description: 'backup-import 用：A 机器通过 backup-export 得到的完整备份包；含岗位/候选人/沟通/凭据/计数/流程配置' },
           replace: { type: 'boolean', description: 'backup-import 用：true=先自动备份本机再替换；false（默认）=安全合并，推荐' },
           limit: { type: 'number', description: 'nextInbox 返回队列上限，默认 30，最大 100' },
-          names: { type: 'array', items: { type: 'string' }, description: 'interview 用：批量指定候选人姓名（与 name / filterStage 三选一）' },
+          names: { type: 'array', items: { type: 'string' }, description: 'interview 用：批量指定候选人姓名（与 name / filterStage 三选一）；backfill 用：指定要补的人（与 stage 二选一，传了就不看 stage，只按名字匹配）' },
           time: { type: 'string', description: 'interview 用：具体面试时间，如 2026-10-23 14:30' },
           window: { type: 'string', description: 'interview 用：候选人给的原始时间窗口，如「周三周四都可以」' },
           location: { type: 'string', description: 'interview 用：面试地点名称（省略则继承岗位默认）' },
