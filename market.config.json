@@ -324,6 +324,84 @@
       ],
       "icon": "icons/wechat-session-bind.svg",
       "author": "Sablierj"
+    },
+    {
+      "path": "memory-bridge",
+      "branch": "pkg/memory-bridge",
+      "title": {
+        "zh": "记忆服务（TDAI 记忆桥）",
+        "en": "Memory Bridge (TDAI Agent Memory)"
+      },
+      "description": {
+        "zh": "把腾讯开源 TencentDB Agent Memory 接进 DSH：每轮自动召回与写回、L0–L3 分层浏览、会话文件上传与同步进度、记忆代理开关，数据全在本机与自己的网关。",
+        "en": "Wires TencentDB Agent Memory into DSH: per-turn recall and write-back, L0–L3 browsing, session upload with sync progress, and a memory-proxy switch."
+      },
+      "category": "system",
+      "labels": [
+        "web-ui",
+        "local-data"
+      ],
+      "keywords": [
+        "记忆",
+        "memory",
+        "tdai",
+        "召回",
+        "会话同步",
+        "agent memory"
+      ],
+      "author": "Sablierj"
+    },
+    {
+      "path": "sif-ops",
+      "branch": "pkg/sif-ops",
+      "title": {
+        "zh": "SIF 数据台",
+        "en": "SIF Ops Workbench"
+      },
+      "description": {
+        "zh": "对接 SIF 官方 MCP：把流量、广告、关键词与市场数据按 ASIN 与时间落本机 SQLite，提供词库挖掘、竞品格局、看板与十段式运营报告。",
+        "en": "Bridges the SIF MCP into DSH: traffic, ads, keyword and market data stored locally per ASIN, with keyword mining, competitor view, dashboard and a ten-section report."
+      },
+      "category": "operations",
+      "labels": [
+        "web-ui",
+        "local-data"
+      ],
+      "keywords": [
+        "亚马逊",
+        "amazon",
+        "sif",
+        "关键词",
+        "竞品",
+        "运营"
+      ],
+      "author": "Sablierj"
+    },
+    {
+      "path": "pdd-workbench",
+      "branch": "pkg/pdd-workbench",
+      "title": {
+        "zh": "拼多多 / 1688 订单工作台",
+        "en": "PDD & 1688 Order Workbench"
+      },
+      "description": {
+        "zh": "按近两天口径导出拼多多与 1688 待发货订单到本机 SQLite，并与闲鱼订单智能核对、生成批量发货模板。",
+        "en": "Exports PDD and 1688 orders into a local SQLite database by the last-two-days window, reconciles them against Xianyu orders and generates a bulk shipping template."
+      },
+      "category": "operations",
+      "labels": [
+        "web-ui",
+        "local-data"
+      ],
+      "keywords": [
+        "拼多多",
+        "pdd",
+        "1688",
+        "闲鱼",
+        "订单",
+        "发货"
+      ],
+      "author": "Sablierj"
     }
   ]
 }

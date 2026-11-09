@@ -5,13 +5,13 @@
       "branch": "pkg/amazon-ops",
       "name": "dsh-plugin-amazon-ops",
       "version": "0.1.0",
-      "commit": "fc2d0578bf2172386f77929cb136af7f82b41893",
-      "timestamp": 1793063609,
+      "commit": "22396f4ae1044de136d6d2ceca6b8ad359827144",
+      "timestamp": 1793962307,
       "versions": [
         {
           "version": "0.1.0",
-          "commit": "fc2d0578bf2172386f77929cb136af7f82b41893",
-          "timestamp": 1793063609
+          "commit": "22396f4ae1044de136d6d2ceca6b8ad359827144",
+          "timestamp": 1793962307
         }
       ]
     },
@@ -19,14 +19,19 @@
       "path": "boss-recruit",
       "branch": "pkg/boss-recruit",
       "name": "@local/dsh-plugin-boss-recruit",
-      "version": "2.30.2",
-      "commit": "dedfee998662bd9fd08469f5df62aa181c5177bd",
-      "timestamp": 1793272384,
+      "version": "2.32.1",
+      "commit": "db0177fa236c36f1af52b7a0a246966aea23cddc",
+      "timestamp": 1793962339,
       "versions": [
         {
           "version": "2.30.2",
           "commit": "dedfee998662bd9fd08469f5df62aa181c5177bd",
           "timestamp": 1793272384
+        },
+        {
+          "version": "2.32.1",
+          "commit": "db0177fa236c36f1af52b7a0a246966aea23cddc",
+          "timestamp": 1793962339
         }
       ]
     },
@@ -147,6 +152,51 @@
           "version": "1.0.0",
           "commit": "7df2f695db64e8bf900763cb08ac367eec91ee7a",
           "timestamp": 1793063737
+        }
+      ]
+    },
+    {
+      "path": "memory-bridge",
+      "branch": "pkg/memory-bridge",
+      "name": "@local/dsh-plugin-memory-bridge",
+      "version": "0.10.1",
+      "commit": "89caa3825dbb9c20262dda018602f8ba6785bd1f",
+      "timestamp": 1793962609,
+      "versions": [
+        {
+          "version": "0.10.1",
+          "commit": "89caa3825dbb9c20262dda018602f8ba6785bd1f",
+          "timestamp": 1793962609
+        }
+      ]
+    },
+    {
+      "path": "sif-ops",
+      "branch": "pkg/sif-ops",
+      "name": "dsh-plugin-sif-ops",
+      "version": "0.1.0",
+      "commit": "0e47589ecae8574c85877f8c19e6b783aad95aee",
+      "timestamp": 1793962629,
+      "versions": [
+        {
+          "version": "0.1.0",
+          "commit": "0e47589ecae8574c85877f8c19e6b783aad95aee",
+          "timestamp": 1793962629
+        }
+      ]
+    },
+    {
+      "path": "pdd-workbench",
+      "branch": "pkg/pdd-workbench",
+      "name": "@local/dsh-plugin-pdd-workbench",
+      "version": "0.8.0",
+      "commit": "e53d14ef6efa6bcab5c2f492b8e5e2ec32fb4367",
+      "timestamp": 1793962649,
+      "versions": [
+        {
+          "version": "0.8.0",
+          "commit": "e53d14ef6efa6bcab5c2f492b8e5e2ec32fb4367",
+          "timestamp": 1793962649
         }
       ]
     }
