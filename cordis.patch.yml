@@ -3,10 +3,12 @@
 # 一行 host 就够：工具、页面、JSON API 都由 index.js 一处注册，`config.plugin`
 # 留作将来拆平面用（与 amazon-ops 的约定一致）。
 #
-# `name` 是绝对路径：app-boot 会把绝对说明符用 pathToFileURL 解析，所以它跟着
-# 这个文件所在的目录走。改机时只改这一行。
+# `name` 是相对路径（`./index.js`）：app-boot 的 anchorInsertedPluginNames() 对
+# 绝对路径与 `./` / `../` 开头的 name 一视同仁，都按这个 patch 文件所在目录解析成
+# file URL（依据见 amazon-ops/cordis.patch.yml 的实测注释），所以相对写法跟着仓走，
+# 换机器/换安装位置都不用改这一行。必须是 `./index.js`，裸 `index.js` 会被当成包名。
 - insert:
     - id: sif-ops
-      name: 'D:\deepseek-harness-h\workspace\dsh-plugins\sif-ops\index.js'
+      name: './index.js'
       config:
         plugin: workbench

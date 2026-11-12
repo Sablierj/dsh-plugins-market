@@ -42,8 +42,8 @@ function check(name, condition, detail = '') {
 const eq = (name, actual, expected) => check(name, JSON.stringify(actual) === JSON.stringify(expected), `实际 ${JSON.stringify(actual)} ≠ 期望 ${JSON.stringify(expected)}`)
 
 // ── 1. 解析器 ─────────────────────────────────────────────
-eq('stripAsin 剥 markdown 链接', stripAsin('[B0XXXXXXXX](https://www.amazon.com/dp/B0XXXXXXXX)'), 'B0XXXXXXXX')
-eq('stripAsin 纯 ASIN 原样', stripAsin('b0gv55q4jg'), 'B0XXXXXXXX')
+eq('stripAsin 剥 markdown 链接', stripAsin('[B0GV55Q4JG](https://www.amazon.com/dp/B0GV55Q4JG)'), 'B0GV55Q4JG')
+eq('stripAsin 纯 ASIN 原样', stripAsin('b0gv55q4jg'), 'B0GV55Q4JG')
 eq('parseDataDate', parseDataDate('Data updated through 2026-11-04 (refreshes daily, 1-day delay)'), '2026-11-04')
 eq('parseDataDate 无日期', parseDataDate('n/a'), null)
 eq('parseRank p2,11/48', parseRank('p2,11/48'), { page: 2, pos: 11, total: 48 })
@@ -70,21 +70,21 @@ try {
   }
   // 同一周写两次 → 只有 1 行，值被覆盖
   const row = {
-    marketplace: 'US', asin: 'B0XXXXXXXX1', periodType: 'week', periodStart: '2026-11-01',
+    marketplace: 'US', asin: 'B0TEST00001', periodType: 'week', periodStart: '2026-11-01',
     totalScore: 100, nfScore: 40, adScore: 60, nfRatio: 0.4, adRatio: 0.6, tool: 't', fetchedAt: '2026-11-05T00:00:00Z', dataDate: '2026-11-04',
   }
   upsertTraffic(store, row)
   upsertTraffic(store, { ...row, totalScore: 120, nfScore: 30, adScore: 90, nfRatio: 0.25, adRatio: 0.75 })
-  const count = store.get("SELECT COUNT(*) AS n FROM sif_traffic WHERE asin='B0XXXXXXXX1'").n
+  const count = store.get("SELECT COUNT(*) AS n FROM sif_traffic WHERE asin='B0TEST00001'").n
   eq('同周重抓只留 1 行', count, 1)
-  const saved = store.get("SELECT total_score, ad_ratio FROM sif_traffic WHERE asin='B0XXXXXXXX1'")
+  const saved = store.get("SELECT total_score, ad_ratio FROM sif_traffic WHERE asin='B0TEST00001'")
   eq('同周重抓覆盖为新值', [saved.total_score, saved.ad_ratio], [120, 0.75])
 
   // 再开一次同一个库：迁移不重复执行、数据还在
   store.close()
   const again = openStore({ dataDir: dir, logger })
   eq('重开库仍是 v5', again.version, 5)
-  eq('重开库数据还在', again.get("SELECT COUNT(*) AS n FROM sif_traffic WHERE asin='B0XXXXXXXX1'").n, 1)
+  eq('重开库数据还在', again.get("SELECT COUNT(*) AS n FROM sif_traffic WHERE asin='B0TEST00001'").n, 1)
 
   // ── 3. 规则引擎 ────────────────────────────────────────
   again.run("DELETE FROM sif_traffic")
@@ -96,33 +96,33 @@ try {
   ]
   for (const [period, total, nf, ad] of weeks) {
     upsertTraffic(again, {
-      marketplace: 'US', asin: 'B0XXXXXXXX1', periodType: 'week', periodStart: period,
+      marketplace: 'US', asin: 'B0TEST00001', periodType: 'week', periodStart: period,
       totalScore: total, nfScore: nf, adScore: ad, nfRatio: nf / total, adRatio: ad / total,
       totalChangeRatio: period === '2026-11-01' ? -0.48 : null,
       tool: 't', fetchedAt: '2026-11-05T00:00:00Z', dataDate: '2026-11-04',
     })
   }
-  const insights = computeInsights(again, { marketplace: 'US', asin: 'B0XXXXXXXX1' })
+  const insights = computeInsights(again, { marketplace: 'US', asin: 'B0TEST00001' })
   const kinds = insights.map(item => item.kind)
   check('广告依赖被识别', kinds.includes('ad_dependency'), JSON.stringify(kinds))
   check('急跌被识别', kinds.includes('drop_ad_led') || kinds.includes('drop_real'), JSON.stringify(kinds))
   check('每条洞察都带证据', insights.every(item => item.evidence && Object.keys(item.evidence).length > 0))
-  const stored = replaceInsights(again, { marketplace: 'US', asin: 'B0XXXXXXXX1', insights })
+  const stored = replaceInsights(again, { marketplace: 'US', asin: 'B0TEST00001', insights })
   eq('洞察落库条数一致', stored.length, insights.length)
-  const again2 = replaceInsights(again, { marketplace: 'US', asin: 'B0XXXXXXXX1', insights })
+  const again2 = replaceInsights(again, { marketplace: 'US', asin: 'B0TEST00001', insights })
   eq('重算不重复堆积 open 洞察', again2.length, insights.length)
 
   // ── 4. 看板 + 报告 ─────────────────────────────────────
-  upsertObject(again, { marketplace: 'US', asin: 'B0XXXXXXXX1', label: 'mine' })
+  upsertObject(again, { marketplace: 'US', asin: 'B0TEST00001', label: 'mine' })
   const board = buildDashboard(again, { marketplace: 'US' })
   eq('看板对象数', board.objects, 1)
   check('看板带周序列', board.asins[0].weeks.length === 4, `weeks=${board.asins[0].weeks.length}`)
-  const report = buildReport(board, { asin: 'B0XXXXXXXX1' })
+  const report = buildReport(board, { asin: 'B0TEST00001' })
   check('报告非空', !!report && report.markdown.length > 500, `chars=${report?.markdown?.length}`)
   check('报告带数据截止日', report.markdown.includes('数据截止'))
   check('报告带口径声明', report.markdown.includes('相对量'))
   check('报告列出未采集项', report.markdown.includes('未采集'))
-  const missing = buildReport(board, { asin: 'B0XXXXXXXX' })
+  const missing = buildReport(board, { asin: 'B0NOTEXIST' })
   eq('未知 ASIN 返回 null', missing, null)
 
   // ── 5. 词库 ────────────────────────────────────────────
@@ -149,7 +149,7 @@ try {
 
   // ── 7. Listing 深度诊断 ────────────────────────────────
   const poor = auditListing({
-    asin: 'B0XXXXXXXX1',
+    asin: 'B0TEST00001',
     listing: {
       title: 'BEST SELLER Bench Cushion Free Shipping ' + 'x'.repeat(200),
       bullets: ['short one'],
@@ -177,7 +177,7 @@ try {
   check('覆盖矩阵标出未覆盖词', poor.coverage[0].covered === true, JSON.stringify(poor.coverage[0]))
 
   const good = auditListing({
-    asin: 'B0XXXXXXXX1',
+    asin: 'B0TEST00001',
     listing: {
       title: 'Bench Cushion, 70D Foam, 17x17 in, Beige Chenille Cover',
       bullets: ['Bench cushion fits 17x17 in seat', '70D foam keeps shape', 'Chenille cover is soft', 'Ties keep it in place', 'Spot clean only'],
@@ -211,9 +211,9 @@ try {
     { keyword: 'custom bench cushion', traffic_share: 0.2 },
     { keyword: 'indoor bench cushions', traffic_share: 0.1 },
   ]
-  const beforeAudit = auditListing({ asin: 'B0XXXXXXXX1', listing: draftInput, keywords: draftKeywords, competitorPrices: [10, 12, 15] })
-  const { draft, notes } = buildListingDraft({ asin: 'B0XXXXXXXX1', listing: draftInput, keywords: draftKeywords, brand: 'ROFIEJOX' })
-  const afterAudit = auditListing({ asin: 'B0XXXXXXXX1', listing: draft, keywords: draftKeywords, competitorPrices: [10, 12, 15] })
+  const beforeAudit = auditListing({ asin: 'B0TEST00001', listing: draftInput, keywords: draftKeywords, competitorPrices: [10, 12, 15] })
+  const { draft, notes } = buildListingDraft({ asin: 'B0TEST00001', listing: draftInput, keywords: draftKeywords, brand: 'ROFIEJOX' })
+  const afterAudit = auditListing({ asin: 'B0TEST00001', listing: draft, keywords: draftKeywords, competitorPrices: [10, 12, 15] })
   const diff = diffAudit(beforeAudit, afterAudit)
 
   check('草稿标题 ≤200 字符', draft.title.length <= 200, `len=${draft.title.length}`)
@@ -230,14 +230,14 @@ try {
   check('复测后高风险减少或清零', afterAudit.counts.high <= beforeAudit.counts.high,
     `${beforeAudit.counts.high} → ${afterAudit.counts.high}`)
   check('草稿说明里有生成口径提示', notes.some(note => note.includes('字符')))
-  const draftMd = renderDraftReport({ asin: 'B0XXXXXXXX1', draft, notes, diff, before: beforeAudit, after: afterAudit })
+  const draftMd = renderDraftReport({ asin: 'B0TEST00001', draft, notes, diff, before: beforeAudit, after: afterAudit })
   check('草稿报告含复测分', draftMd.includes('复测'))
   check('草稿报告含后台搜索词', draftMd.includes('后台搜索词'))
 
   // ── 9. 深度总报告（md + 自包含 HTML）────────────────────
   const deep = buildDeepReport({
-    asin: 'B0XXXXXXXX1',
-    board: { asins: [{ asin: 'B0XXXXXXXX1', dataDate: '2026-11-04', title: 'Bench Cushion', price: 12, star: 4.6, reviews: 120, weeks: [
+    asin: 'B0TEST00001',
+    board: { asins: [{ asin: 'B0TEST00001', dataDate: '2026-11-04', title: 'Bench Cushion', price: 12, star: 4.6, reviews: 120, weeks: [
       { period_start: '2026-10-25', total_score: 900, nf_score: 300, ad_score: 600, nf_ratio: 0.33, ad_ratio: 0.67, total_change_ratio: -0.1 },
       { period_start: '2026-11-01', total_score: 600, nf_score: 150, ad_score: 450, nf_ratio: 0.25, ad_ratio: 0.75, total_change_ratio: -0.33 },
     ] }] },
@@ -258,11 +258,11 @@ try {
   check('md 含数据缺口章节', deep.markdown.includes('## 七、数据健康与无来源项'))
 
   // ── 10. 素材补录（主图 / A+ / 差评主题）──────────────────
-  const noAssets = auditListing({ asin: 'B0XXXXXXXX1', listing: draftInput, keywords: draftKeywords, competitorPrices: [10, 12, 15] })
+  const noAssets = auditListing({ asin: 'B0TEST00001', listing: draftInput, keywords: draftKeywords, competitorPrices: [10, 12, 15] })
   check('无素材时图片/A+ 标 nodata',
     noAssets.sections.filter(section => ['images', 'aplus'].includes(section.id)).every(section => section.status === 'nodata'))
   const withAssets = auditListing({
-    asin: 'B0XXXXXXXX1', listing: draftInput, keywords: draftKeywords, competitorPrices: [10, 12, 15],
+    asin: 'B0TEST00001', listing: draftInput, keywords: draftKeywords, competitorPrices: [10, 12, 15],
     assets: { imagesTotal: 5, hasWhiteBg: false, minPxOk: true, hasVideo: false, aplus: false, reviewThemes: '尺寸偏小,坐垫塌陷', source: 'manual' },
   })
   const imgSection = withAssets.sections.find(section => section.id === 'images')
@@ -281,15 +281,15 @@ try {
   const portfolio = renderPortfolio({
     marketplace: 'US',
     rows: [
-      { asin: 'B0XXXXXXXX', title: 'Small Traffic Item', totalScore: 120, nfRatio: 0.5, score: 80, headline: '收预算：广告依赖', dataDate: '2026-11-04', priority: 3.2 },
-      { asin: 'B0XXXXXXXX', title: 'Big Traffic Item', totalScore: 3000, nfRatio: 0.1, score: 40, headline: '补位：头词没进前 3 页', dataDate: '2026-11-04', priority: 12.5 },
+      { asin: 'B0AAAAAAA1', title: 'Small Traffic Item', totalScore: 120, nfRatio: 0.5, score: 80, headline: '收预算：广告依赖', dataDate: '2026-11-04', priority: 3.2 },
+      { asin: 'B0BBBBBBB2', title: 'Big Traffic Item', totalScore: 3000, nfRatio: 0.1, score: 40, headline: '补位：头词没进前 3 页', dataDate: '2026-11-04', priority: 12.5 },
     ],
   })
-  check('组合视图按优先级降序（流量大的排前）', portfolio.rows[0].asin === 'B0XXXXXXXX', portfolio.rows[0].asin)
-  check('组合视图含全部商品', portfolio.markdown.includes('B0XXXXXXXX') && portfolio.markdown.includes('B0XXXXXXXX'))
+  check('组合视图按优先级降序（流量大的排前）', portfolio.rows[0].asin === 'B0BBBBBBB2', portfolio.rows[0].asin)
+  check('组合视图含全部商品', portfolio.markdown.includes('B0AAAAAAA1') && portfolio.markdown.includes('B0BBBBBBB2'))
   check('组合视图有「先动这几个」', portfolio.markdown.includes('先动这几个'))
   const summary = summarizeForPortfolio({
-    asin: 'B0XXXXXXXX',
+    asin: 'B0BBBBBBB2',
     item: { latest: { total_score: 3000, nf_ratio: 0.1 }, dataDate: '2026-11-04', title: 'x' },
     audit: { score: 40, counts: { high: 2, medium: 1, low: 0 }, issues: [{ issue: '五点覆盖率 0' }] },
     actions: [{ verb: '补位', title: 'bench cushion 没进前 3 页', action: '补词' }],
@@ -299,14 +299,14 @@ try {
 
   // ── 12. 第二轮改稿（收紧）────────────────────────────
   const round2 = buildListingDraft({
-    asin: 'B0XXXXXXXX1', listing: draftInput, keywords: draftKeywords, brand: 'ROFIEJOR', tighten: true,
+    asin: 'B0TEST00001', listing: draftInput, keywords: draftKeywords, brand: 'ROFIEJOR', tighten: true,
   })
   check('第二轮每条五点都带数字', round2.draft.bullets.every(text => /\d/.test(text)),
     JSON.stringify(round2.draft.bullets.map(text => /\d/.test(text))))
   check('第二轮五点不超过 470 字符', round2.draft.bullets.every(text => text.length <= 470),
     JSON.stringify(round2.draft.bullets.map(text => text.length)))
   check('第二轮含问句锚点（how/which/what）', /how|which|what/i.test(round2.draft.bullets.join(' ')))
-  const round2Audit = auditListing({ asin: 'B0XXXXXXXX1', listing: round2.draft, keywords: draftKeywords, competitorPrices: [10, 12, 15] })
+  const round2Audit = auditListing({ asin: 'B0TEST00001', listing: round2.draft, keywords: draftKeywords, competitorPrices: [10, 12, 15] })
   check('第二轮复测不劣于第一轮', round2Audit.score >= afterAudit.score, `${afterAudit.score} → ${round2Audit.score}`)
   check('第二轮 GEO 通过', round2Audit.sections.find(section => section.id === 'geo').status === 'ok',
     round2Audit.sections.find(section => section.id === 'geo').status)
@@ -315,14 +315,14 @@ try {
   again.run(`DELETE FROM sif_raw`)
   again.run(`DELETE FROM sif_traffic`)
   upsertTraffic(again, {
-    marketplace: 'US', asin: 'B0XXXXXXXX1', periodType: 'week', periodStart: '2026-10-25',
+    marketplace: 'US', asin: 'B0TEST00001', periodType: 'week', periodStart: '2026-10-25',
     totalScore: 900, nfScore: 300, adScore: 600, nfRatio: 0.33, adRatio: 0.67,
     tool: 'ops_get_asin_traffic_trend', fetchedAt: '2026-11-05T00:00:00Z', dataDate: '2026-11-04',
   })
   again.run(
     `INSERT INTO sif_raw (tool, params_json, params_hash, data_date, cost_points, ok, response_json, fetched_at)
      VALUES (?,?,?,?,?,?,?,?)`,
-    ['ops_get_asin_traffic_trend', JSON.stringify({ asin: 'B0XXXXXXXX1' }), 'h1', '2026-11-04', 2, 1,
+    ['ops_get_asin_traffic_trend', JSON.stringify({ asin: 'B0TEST00001' }), 'h1', '2026-11-04', 2, 1,
       JSON.stringify({ dates: ['2026-10-25'], totalScore: [{ score: 900 }] }), '2026-11-05T00:00:00Z'])
   const sameCount = checkConsistency(again, { marketplace: 'US' })
   eq('对账：数量一致时 0 处不符', sameCount.mismatches, 0)
@@ -331,7 +331,7 @@ try {
   again.run(
     `INSERT INTO sif_raw (tool, params_json, params_hash, data_date, cost_points, ok, response_json, fetched_at)
      VALUES (?,?,?,?,?,?,?,?)`,
-    ['ops_get_asin_traffic_trend', JSON.stringify({ asin: 'B0XXXXXXXX1' }), 'h2', '2026-11-04', 2, 1,
+    ['ops_get_asin_traffic_trend', JSON.stringify({ asin: 'B0TEST00001' }), 'h2', '2026-11-04', 2, 1,
       JSON.stringify({ dates: ['2026-10-25', '2026-11-01'], totalScore: [{ score: 900 }, { score: 800 }] }), '2026-11-05T01:00:00Z'])
   const drift = checkConsistency(again, { marketplace: 'US' })
   check('对账：raw 多一周时抓出不符', drift.mismatches >= 1, JSON.stringify(drift.checks))
@@ -342,13 +342,13 @@ try {
   again.run("DELETE FROM sif_raw")
   for (const [period, total, nf, ad] of weeks) {
     upsertTraffic(again, {
-      marketplace: 'US', asin: 'B0XXXXXXXX1', periodType: 'week', periodStart: period,
+      marketplace: 'US', asin: 'B0TEST00001', periodType: 'week', periodStart: period,
       totalScore: total, nfScore: nf, adScore: ad, nfRatio: nf / total, adRatio: ad / total,
       totalChangeRatio: period === '2026-11-01' ? -0.48 : null,
       tool: 't', fetchedAt: '2026-11-05T00:00:00Z', dataDate: '2026-11-04',
     })
   }
-  const actions = buildActions(again, { marketplace: 'US', asin: 'B0XXXXXXXX1' })
+  const actions = buildActions(again, { marketplace: 'US', asin: 'B0TEST00001' })
   check('待办非空', actions.length > 0, `n=${actions.length}`)
   check('待办按优先级降序', actions.every((item, i) => i === 0 || actions[i - 1].priority >= item.priority))
   check('每条待办都有动词与依据', actions.every(item => item.verb && item.detail))

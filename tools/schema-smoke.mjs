@@ -22,7 +22,7 @@ const dataDate = '2026-11-04'
 db.prepare(`INSERT INTO sif_asin (marketplace, asin, title, brand, price, star_rating, rating_num,
   bsr_rank, bsr_category, first_available_day, variation_num, weight_oz, observed_at, data_date)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-  'US', 'B0XXXXXXXX', 'Detiblue Low Back Rocking Chair Cushion Set, 2 Piece, Beige, 17x17 in',
+  'US', 'B0GK5ZDJK9', 'Detiblue Low Back Rocking Chair Cushion Set, 2 Piece, Beige, 17x17 in',
   'Detiblue', 44.59, 4.5, 49, 317, 'Patio Furniture Cushions', '2026-01-27', 11, 78.08, now, dataDate)
 
 // 2) 流量周序列（真实 10 周：total / nf / ad）
@@ -33,7 +33,7 @@ const ad    = [800.97,727.54,557.95,522.64,652.58,188.76,1094.81,989.05,2443.32,
 const ins = db.prepare(`INSERT INTO sif_traffic (marketplace, asin, scope, period_type, period_start,
   total_score, nf_score, ad_score, nf_ratio, ad_ratio, is_complete, tool, fetched_at, data_date)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-weeks.forEach((w, i) => ins.run('US','B0XXXXXXXX','listing','week',w,
+weeks.forEach((w, i) => ins.run('US','B0GK5ZDJK9','listing','week',w,
   total[i], nf[i], ad[i], +(nf[i]/total[i]).toFixed(4), +(ad[i]/total[i]).toFixed(4), 1,
   'ops_get_asin_traffic_trend', now, dataDate))
 
@@ -42,7 +42,7 @@ db.prepare(`INSERT INTO sif_asin_keyword (marketplace, asin, keyword, period_typ
   traffic_share, contri_change, contri_severity, organic_page, organic_pos, organic_total, organic_rank_raw,
   rank_evolution, gap_severity, keyword_health, traffic_dependency, keyword_tags_json, fetched_at, data_date)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-  'US','B0XXXXXXXX','rocking chair cushions','lately','30',
+  'US','B0GK5ZDJK9','rocking chair cushions','lately','30',
   0.438, 0.416, 'growing', 2, 11, 48, 'p2,11/48',
   'gap_detected','severe','volatile','natural_dominant',
   JSON.stringify(['搜索量同比增长词','主要流量词']), now, dataDate)
@@ -61,7 +61,7 @@ abaIns.run('US','rocking chair cushions','2026-10-25',9631,142000,0.2543,0.0933,
 const before = db.prepare('SELECT COUNT(*) AS n FROM sif_traffic').get().n
 let refused = false
 try {
-  ins.run('US','B0XXXXXXXX','listing','week','2026-11-01',999,999,0,0.9,0.1,1,
+  ins.run('US','B0GK5ZDJK9','listing','week','2026-11-01',999,999,0,0.9,0.1,1,
     'ops_get_asin_traffic_trend', now, dataDate)
 } catch { refused = true }
 db.prepare(`INSERT INTO sif_traffic (marketplace, asin, scope, period_type, period_start,
@@ -70,7 +70,7 @@ db.prepare(`INSERT INTO sif_traffic (marketplace, asin, scope, period_type, peri
   ON CONFLICT (marketplace, asin, scope, period_type, period_start) DO UPDATE SET
     total_score=excluded.total_score, nf_score=excluded.nf_score, ad_score=excluded.ad_score,
     nf_ratio=excluded.nf_ratio, ad_ratio=excluded.ad_ratio, fetched_at=excluded.fetched_at`)
-  .run('US','B0XXXXXXXX','listing','week','2026-11-01',976.21,384.05,592.16,0.3934,0.6066,1,
+  .run('US','B0GK5ZDJK9','listing','week','2026-11-01',976.21,384.05,592.16,0.3934,0.6066,1,
     'ops_get_asin_traffic_trend', now, dataDate)
 const after = db.prepare('SELECT COUNT(*) AS n FROM sif_traffic').get().n
 console.log('rows before/after duplicate insert:', before, after)
@@ -79,16 +79,16 @@ console.log('rows before/after duplicate insert:', before, after)
 console.log('\n[Q1] 最近 4 周自然 vs 广告占比')
 console.table(db.prepare(`SELECT period_start, ROUND(total_score,0) AS total,
   ROUND(nf_ratio*100,1) AS nf_pct, ROUND(ad_ratio*100,1) AS ad_pct
-  FROM v_traffic_last8w WHERE asin=? ORDER BY period_start DESC LIMIT 4`).all('B0XXXXXXXX'))
+  FROM v_traffic_last8w WHERE asin=? ORDER BY period_start DESC LIMIT 4`).all('B0GK5ZDJK9'))
 
 console.log('[Q2] 广告依赖度（ad_ratio>=0.6 的周数）')
 console.log(db.prepare(`SELECT COUNT(*) AS weeks_over_60pct FROM v_ad_dependency
-  WHERE asin=?`).get('B0XXXXXXXX'))
+  WHERE asin=?`).get('B0GK5ZDJK9'))
 
 console.log('[Q3] 没进首页、但已经带量的词（缺口）')
 console.table(db.prepare(`SELECT keyword, ROUND(traffic_share*100,1) AS share_pct,
   organic_page AS page, organic_pos AS pos, gap_severity, positions_left_in_page
-  FROM v_kw_gap WHERE asin=? ORDER BY traffic_share DESC`).all('B0XXXXXXXX'))
+  FROM v_kw_gap WHERE asin=? ORDER BY traffic_share DESC`).all('B0GK5ZDJK9'))
 
 console.log('[Q4] ABA 最新一周')
 console.table(db.prepare(`SELECT keyword, week_start, volume, rank,
