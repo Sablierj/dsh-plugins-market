@@ -55,11 +55,11 @@
 记忆网关（`tdai-gateway`）默认只听 `127.0.0.1:8420`。两种走法：
 
 1. **直连**：`baseUrl = http://127.0.0.1:8420`，`relayKey` 留空。
-2. **隧道**：网关跑在某台客户机的 8420，由面板发布成 `http://47.251.253.188:8080/relay/<id>`，请求带 `X-Relay-Key`：
+2. **隧道**：网关跑在某台客户机的 8420，由面板发布成 `http://<隧道主机>:8080/relay/<id>`，请求带 `X-Relay-Key`：
 
 ```
 DSH 插件 ──HTTP──▶ 面板 /relay/rl-xxxx（校验 X-Relay-Key）
-                    └─▶ rathole 隧道口 172.17.0.1:18500
+                    └─▶ rathole 隧道口 <docker-bridge>:18500
                          └─▶ 客户机 rathole client
                               └─▶ 127.0.0.1:8420 tdai-gateway
 ```
@@ -150,9 +150,10 @@ DSH 插件 ──HTTP──▶ 面板 /relay/rl-xxxx（校验 X-Relay-Key）
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `proxyUrl` | 记忆代理 relay | LLM 转发入口 |
+| `proxyUrl` | 空 | LLM 转发入口（记忆代理的 relay 地址，自己填） |
 | `proxyKey` | 空 | 该 relay 的 X-Relay-Key（同时作为规则 access_key） |
-| `proxyRuleId` / `proxyClientId` / `proxyLocalAddr` | rl-c4628f30 / cli-9164e6181daf / 127.0.0.1:8096 | 开关代理时定位规则 |
-| `panelUrl` / `panelKey` | 面板地址 / 空 | 开关代理需要面板 api_key |
+| `proxyRuleId` / `proxyClientId` / `proxyLocalAddr` | rl-<id> / cli-<id> / 127.0.0.1:8096 | 开关代理时定位规则 |
+| `panelUrl` / `panelKey` | 空 / 空 | 面板地址；不填就退回入口地址的 origin（面板开关代理还需要 `panelKey`） |
+| `tunnelUrl` | 空 | 你自己配的隧道入口；填了面板才出现「填隧道默认」按钮 |
 | `autoCapture` | false | 每轮自动写 L0 |
 | `logRedact` / `maxLogLines` | true / 2000 | 日志脱敏与环形上限 |

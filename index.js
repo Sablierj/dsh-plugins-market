@@ -32,10 +32,12 @@ import { zstdDecompressSync } from 'node:zlib'
 
 export const inject = ['tools']
 
-const RELAY_URL = 'http://47.251.253.188:8080/relay/rl-b3edb436'
-
 const DEFAULTS = {
-  baseUrl: RELAY_URL,
+  // 默认走本机网关：装完即可连，不需要任何内置主机名或 relay key。
+  // （内置过一条具体隧道入口 = 把每一台安装都绑到某台机器上，已移除。）
+  baseUrl: 'http://127.0.0.1:8420',
+  // 隧道入口只在你自己配了隧道时才填；面板「填隧道默认」拿它做填充，空则不渲染该按钮。
+  tunnelUrl: '',
   relayKey: '',
   bearer: '',
   dialect: 'auto',
@@ -51,12 +53,12 @@ const DEFAULTS = {
   maxBlockChars: 4000,
   autoInject: false,
   // v0.4：记忆代理（LLM 转发）与日志
-  proxyUrl: 'http://47.251.253.188:8080/relay/rl-c4628f30',
-  proxyRuleId: 'rl-c4628f30',
+  proxyUrl: '',
+  proxyRuleId: '',
   proxyClientId: 'cli-9164e6181daf',
   proxyLocalAddr: '127.0.0.1:8096',
   proxyKey: '',
-  panelUrl: 'http://47.251.253.188:8080',
+  panelUrl: '',
   panelKey: '',
   autoCapture: false,
   // 自动同步会话：每 N 分钟把还没传过的本地会话补传上去（后台跑，不阻塞对话）
@@ -66,6 +68,50 @@ const DEFAULTS = {
   logRedact: true,
   maxLogLines: 2000,
   enabled: true,
+}
+
+/**
+ * 纯函数：从一个入口地址取出 origin。
+ * `http://h:8080/relay/x` → `http://h:8080`；空串 / 解析不出来 → 空串。
+ * 面板显示与「面板 API 根」都走它，因此源码里不需要认识任何具体主机。
+ */
+export function originOf(url) {
+  const text = typeof url === 'string' ? url.trim() : ''
+  if (text === '') return ''
+  try {
+    const parsed = new URL(text)
+    return `${parsed.protocol}//${parsed.host}`
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 纯函数：把一层配置收敛成真正要用的几处地址。
+ *   baseUrl   记忆网关入口（本机直连，或你自己配的隧道）
+ *   panelBase 面板 API 根：显式配了 panelUrl 就用它，否则退回 baseUrl 的 origin
+ *   proxyUrl / proxyRuleId / tunnelUrl  未配置即空串（空 = 「没配」，不是「用内置默认」）
+ */
+export function resolveEndpoints(cfg = {}) {
+  const text = (value) => (typeof value === 'string' ? value.trim().replace(/\/+$/u, '') : '')
+  const baseUrl = text(cfg?.baseUrl)
+  const panelUrl = text(cfg?.panelUrl)
+  return {
+    baseUrl,
+    panelBase: panelUrl === '' ? originOf(baseUrl) : panelUrl,
+    proxyUrl: text(cfg?.proxyUrl),
+    proxyRuleId: text(cfg?.proxyRuleId),
+    tunnelUrl: text(cfg?.tunnelUrl),
+  }
+}
+
+/**
+ * 纯函数：三层配置合并，优先级 DEFAULTS < config（cordis.patch.yml）< persisted（本地已保存）。
+ * 收成一个函数的原因：这套优先级曾在两处手写展开过（一处带 persisted、一处不带），
+ * 新增一个字段只要漏改一边，两边行为就不一致，而且没有任何测试会红。
+ */
+export function mergeConfig(config = {}, persistedConfig = undefined) {
+  return { ...DEFAULTS, ...(config ?? {}), ...(persistedConfig ?? {}) }
 }
 
 const API_PATH = '/memory-bridge/api'
@@ -423,9 +469,10 @@ const mask = (secret) => {
  * （别用「回遮罩值、靠 •••• 前缀判断没改」那套：字符串一过 JSON/终端就变形，
  *  变形后前缀判断失效，遮罩值会被当成新密钥写进配置——踩过。）
  */
-function publicConfig(config) {
+export function publicConfig(config) {
   return {
     baseUrl: config.baseUrl,
+    tunnelUrl: config.tunnelUrl,
     relayKey: '',
     relayKeyMask: mask(config.relayKey),
     relayKeySet: config.relayKey !== '',
@@ -580,7 +627,7 @@ export function apply(ctx, config = {}) {
   const persisted = loadState()
   let persistedAt = persisted.savedAt ?? 0
 
-  let current = { ...DEFAULTS, ...(config ?? {}), ...(persisted.config ?? {}) }
+  let current = mergeConfig(config, persisted.config)
   const stats = {
     recalls: 0,
     saves: 0,
@@ -744,7 +791,9 @@ export function apply(ctx, config = {}) {
   /** 一次原始请求：返回 {status, json, text}；网络层失败直接抛，带人话。 */
   const request = async (routePath, options = {}) => {
     const method = options.method ?? 'POST'
-    const url = `${current.baseUrl}${routePath}`
+    const { baseUrl } = resolveEndpoints(current)
+    if (baseUrl === '') throw new Error('未配置记忆网关入口（设置页 → 连接）')
+    const url = `${baseUrl}${routePath}`
     const timeoutMs = Number.isFinite(options.timeoutMs) ? Number(options.timeoutMs) : current.timeoutMs
     const body = options.body === undefined ? undefined : JSON.stringify(options.body)
     let response
@@ -760,7 +809,7 @@ export function apply(ctx, config = {}) {
       if (name === 'TimeoutError' || name === 'AbortError') {
         throw new Error(`请求超时（${timeoutMs} ms）：${url}`)
       }
-      throw new Error(`连不上入口 ${current.baseUrl}：${error?.message ?? String(error)}`)
+      throw new Error(`连不上入口 ${baseUrl}：${error?.message ?? String(error)}`)
     }
     const text = await response.text()
     let json
@@ -896,7 +945,9 @@ export function apply(ctx, config = {}) {
   /* ── 记忆代理（MemoryProxy，LLM 转发）────────────────────────── */
 
   const proxyRequest = async (routePath, options = {}) => {
-    const url = `${current.proxyUrl}${routePath}`
+    const { proxyUrl } = resolveEndpoints(current)
+    if (proxyUrl === '') throw new Error('未配置记忆代理地址（设置页 → 记忆代理）')
+    const url = `${proxyUrl}${routePath}`
     const headers = { 'content-type': 'application/json' }
     if (current.proxyKey !== '') headers['x-relay-key'] = current.proxyKey
     let response
@@ -908,7 +959,7 @@ export function apply(ctx, config = {}) {
         signal: AbortSignal.timeout(Math.max(1000, Math.min(current.timeoutMs, 15000))),
       })
     } catch (error) {
-      throw new Error(`连不上记忆代理 ${current.proxyUrl}：${error?.message ?? String(error)}`)
+      throw new Error(`连不上记忆代理 ${proxyUrl}：${error?.message ?? String(error)}`)
     }
     const text = await response.text()
     let json
@@ -942,7 +993,9 @@ export function apply(ctx, config = {}) {
   /** 面板侧改 relay 规则的 enabled：先只读确认这条规则存在且能被 save 更新。 */
   const panelRequest = async (routePath, body) => {
     if (current.panelKey === '') throw new Error('未配置面板 api_key：代理开关需要它（设置页 → 高级）')
-    const url = `${current.panelUrl}${routePath}`
+    const { panelBase } = resolveEndpoints(current)
+    if (panelBase === '') throw new Error('未配置面板地址（设置页 → 连接里的入口地址，或单独填面板地址）')
+    const url = `${panelBase}${routePath}`
     let response
     try {
       response = await fetch(url, {
@@ -952,7 +1005,7 @@ export function apply(ctx, config = {}) {
         signal: AbortSignal.timeout(12000),
       })
     } catch (error) {
-      throw new Error(`连不上面板 ${current.panelUrl}：${error?.message ?? String(error)}`)
+      throw new Error(`连不上面板 ${panelBase}：${error?.message ?? String(error)}`)
     }
     const text = await response.text()
     if (!response.ok) throw new Error(`面板 HTTP ${response.status}：${text.slice(0, 200)}`)
@@ -968,6 +1021,8 @@ export function apply(ctx, config = {}) {
     const before = await proxyStatus().catch((error) => ({ ok: false, error: error?.message ?? String(error) }))
     // 关键：必须带 id + access_key，面板才会**原地更新**这条规则；
     // 只给 name/client_id 会新建一条（access_key 会变，所有客户端立刻断），实测过。
+    // 因此没有配 id 时宁可拒绝：默认值里已经没有内置规则 id 了。
+    if (current.proxyRuleId === '') throw new Error('未配置代理规则 id（设置页 → 记忆代理）：缺 id 会新建一条规则，access_key 一变所有客户端立刻断')
     const body = {
       id: current.proxyRuleId,
       name: '记忆代理（LLM 转发）',
@@ -1464,6 +1519,7 @@ export function apply(ctx, config = {}) {
   const applyPatch = (patch) => {
     const next = { ...current }
     if (patch?.baseUrl !== undefined) next.baseUrl = asUrl(patch.baseUrl, next.baseUrl)
+    if (patch?.tunnelUrl !== undefined) next.tunnelUrl = asUrl(patch.tunnelUrl, next.tunnelUrl)
     // 空字符串 = 用户没动这个字段，保留原密钥；填了才覆盖。
     if (typeof patch?.relayKey === 'string' && patch.relayKey.trim() !== '') next.relayKey = patch.relayKey.trim()
     if (typeof patch?.bearer === 'string' && patch.bearer.trim() !== '') next.bearer = patch.bearer.trim()
@@ -1701,7 +1757,7 @@ export function apply(ctx, config = {}) {
       return { ok: true, action, message: '已保存', config: publicConfig(current), persistedAt: savedAt }
     }
     if (action === 'reset') {
-      const next = { ...DEFAULTS, ...(config ?? {}) }
+      const next = mergeConfig(config)
       // 默认值里没有密钥，恢复默认不能把用户填的密钥抹掉。
       next.relayKey = current.relayKey
       next.bearer = current.bearer

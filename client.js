@@ -481,7 +481,7 @@ window.__ModuleLoader__.load({
           }, { small: true, disabled: busy !== '' }),
         ]),
         h('div', { key: 'row2', style: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 11.5, color: T.muted, flexWrap: 'wrap' } }, [
-          h('span', { key: 'a', style: { fontFamily: MONO } }, (config?.baseUrl ?? '').replace('http://47.251.253.188:8080/relay/', '…/relay/')),
+          h('span', { key: 'a', style: { fontFamily: MONO } }, (config?.baseUrl ?? '').replace(/\/relay\/[^/]+$/u, '/relay/…')),
           h('span', { key: 'b' }, '·'),
           h('span', { key: 'c' }, `${config?.teamId ?? ''}/${config?.agentId ?? ''}/${config?.userId ?? ''}`),
           h('div', { key: 'sp', style: { flex: 1 } }),
@@ -847,7 +847,8 @@ window.__ModuleLoader__.load({
           }),
           h('div', { key: 'p', style: { display: 'flex', gap: 8, marginTop: -6, marginBottom: 14 } }, [
             Btn('填本机直连', () => setForm({ ...(config ?? {}), baseUrl: 'http://127.0.0.1:8420', relayKey: '' }), { small: true }),
-            Btn('填隧道默认', () => setForm({ ...(config ?? {}), baseUrl: 'http://47.251.253.188:8080/relay/rl-b3edb436' }), { small: true }),
+            // 「填隧道默认」只在隧道地址非空时渲染：没有内置主机，就没法凭空填一个；为空时改渲染一句说明（QA-03）。
+            config?.tunnelUrl ? Btn('填隧道默认', () => setForm({ ...(config ?? {}), baseUrl: config.tunnelUrl }), { small: true }) : h('span', { key: 'tunnel-hint', style: { fontSize: 12, color: T.muted, alignSelf: 'center', lineHeight: 1.6 } }, '配了隧道地址后，才出现「填隧道默认」'),
           ]),
           Field('Relay Key', '留空 = 保持原值不变', {
             value: config?.relayKey ?? '', onChange: set('relayKey'),

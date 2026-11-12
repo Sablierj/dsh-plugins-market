@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-plugin-memory-bridge",
-  "version": "0.10.1",
+  "version": "0.11.1",
   "private": true,
   "type": "module",
   "description": "TencentDB Agent Memory 记忆桥：四工具 + 侧边栏三页签（概览/浏览 L0-L3/设置），含自动捕获、三方状态、记忆代理开关、本地脱敏日志；走 HTTP 隧道，自动识别 v3/v1。",
