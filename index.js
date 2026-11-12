@@ -360,7 +360,113 @@ function requireScreenForGreet(state, jobId, args) {
   return null
 }
 
+/**
+ * v2.33.0（㊾）｜「看过在线简历」是所有推进的前置，不只是打招呼。
+ *
+ * 问题：screen 的 resumeRead 闸门原来只挂在 markGreet / stage=greeted 上，
+ * 于是从沟通页进来的人，可以完全不看简历就 upsert stage=qualified / rejected / resume_*。
+ * 实测：2026-10-31 一晚处理 20+ 人，在线简历一份没点开，判断依据只有卡片摘要 + 候选人自述。
+ * 刘江洪自述只有「外包啊？」三个字，点开简历才发现是 0→8000W、积分消耗150W+、
+ * 「商品+积分+金融」私域商城 0→1 —— 差点被两个字打发掉。
+ *
+ * 规则：任何非 new 的 stage，都必须先有该候选人的 screen 记录（resumeRead=true，projects≥20字）。
+ * 返回错误字符串，或 null 表示通过。
+ */
+const STAGE_NEEDS_SCREEN = new Set([
+  'greeted', 'qualified', 'resume_requested', 'resume_received',
+  'interview_pending', 'interview_available', 'interview_scheduled',
+  'rejected', 'stale', 'pending', 'inbound',
+])
+
+function requireScreenForStage(state, jobId, args, stage) {
+  const st = String(stage || '')
+  if (!STAGE_NEEDS_SCREEN.has(st)) return null
+  const bossId = args.bossId || (args.name ? `${args.name}|${args.company || '-'}` : '')
+  if (!bossId) return '必须带 name + company（或 bossId）：不指名就无法证明这个人你看过在线简历'
+  const sc = findScreen(state, jobId, bossId, true)
+  if (!sc) {
+    // v2.34.0：三层证据。淘汰分两种成本——
+    //   · 卡片/会话级就能判死的（2025 届、期望城市写死别处、明确说不考虑外包），
+    //     不值得再花 30 秒点开在线简历。只要有 precheck(verdict=reject) 就放行。
+    //   · 其余阶段仍必须有一手简历证据。
+    // 这样「快速漏斗」和「一手证据」不再互相打架：precheck 里必须写清依据原文，
+    // 台账能区分「卡片判的」和「看简历判的」，事后可抽查。
+    if (st === 'rejected') {
+      const pre = findPrecheck(state, jobId, bossId)
+      if (pre && pre.verdict === 'reject') return null
+    }
+    const label = (typeof STAGE_LABEL !== 'undefined' && STAGE_LABEL[st]) || st
+    return `要把状态改成「${label}」，但没有 ${bossId} 的 screen 记录，也没有 precheck 淘汰记录。` +
+      `两条合法路径：` +
+      `(A) 卡片/会话里就能判死 → precheck(name, company, source="card|chat", verdict="reject", rejectReason=..., evidence="判死的依据原文")；` +
+      `(B) 初步信息看起来符合 → 点开「在线简历」读工作经历和项目原文 → ` +
+      `screen(name, company, resumeRead=true, projects="从简历里读到的项目原文（≥20字）", decision=...)。` +
+      `两条都没做就写状态，等于没依据。`
+  }
+  if (!sc.projects || String(sc.projects).trim().length < 20) {
+    return `screen 记录里 projects 太短，证明不了真看过简历。重新点开在线简历，把项目原文写进 projects（≥20字）再 upsert`
+  }
+  return null
+}
+
+/** v2.34.0：查某个人的初步判定（卡片/会话级） */
+function findPrecheck(state, jobId, bossId) {
+  const m = state.prechecks && state.prechecks[bossId]
+  if (!m || m.jobId !== jobId) return null
+  return m
+}
+
+/**
+ * v2.33.0（㊿）｜tab 进入闸门：进「新招呼」/「沟通中」之前必须先确认两件事——
+ * ① 左上角职位下拉是本岗位；② 列表的「未读」筛选是打开的。
+ *
+ * 问题：目标要求「点击沟通中 → 点击未读」，但「沟通中」显示空时我直接切「全部」+「未读」，
+ * 从没确认过「未读」这个筛选真的打开着；也没法区分「这个 tab 没有未读」和「我没开未读筛选」。
+ * 返回错误字符串，或 null 表示通过。
+ */
+function requireTabScope(state, job, jobId) {
+  const ts = state.tabScope
+  if (!ts || !ts.at) {
+    return `还没声明 tab 作用域。先进「沟通」页把左上角职位下拉选成「${job.criteria.jobTitle || job.name}」，` +
+      `点开「未读」筛选，再调 tabGuard(tab="newGreet|chatting", pageJobLabel="页面上显示的职位名", unreadActive=true)`
+  }
+  if (ts.jobId !== jobId) {
+    return `tabScope 记录的是另一个岗位（${ts.jobId}），当前岗位是 ${jobId}：先切岗位筛选，再 tabGuard`
+  }
+  const maxAge = (job.criteria.chatScopeTtlMin || 120) * 60 * 1000
+  if (Date.now() - new Date(ts.at).getTime() > maxAge) {
+    return 'tabScope 已过期，重新确认职位筛选和「未读」筛选再 tabGuard'
+  }
+  return null
+}
+
 /** 沟通页岗位作用域：返回错误字符串，或 null 表示通过 */
+/**
+ * P0-1 焦点锁：记录「Agent 此刻打开的是谁的会话」。
+ * 未设置 focus 时不拦截（向后兼容）；一旦调用过 focus，后续所有「我们发出去了」的写入
+ * 都必须与焦点一致，否则拒绝。2026-11-04：曾把「要附件简历」错发给另一位候选人。
+ */
+function requireFocus(state, jobId, who) {
+  const f = state.focus
+  if (!f || !f.at) return null
+  if (f.jobId && f.jobId !== jobId) {
+    return `焦点在另一个岗位（${f.jobId}），当前是 ${jobId}：先切岗位再操作`
+  }
+  const ttlMin = 30
+  const ageMs = Date.now() - new Date(f.at).getTime()
+  if (ageMs > ttlMin * 60 * 1000) {
+    return `焦点已过期（${Math.round(ageMs / 60000)} 分钟 > ${ttlMin} 分钟）：重新 focus(name=...) 再操作`
+  }
+  const wantBoss = who && who.bossId ? String(who.bossId) : ''
+  const wantName = who && who.name ? String(who.name) : ''
+  if (wantBoss && f.bossId && wantBoss !== f.bossId) {
+    return `焦点是「${f.name}」，你要写的是「${wantName || wantBoss}」——先回到他的会话再操作`
+  }
+  if (!wantBoss && wantName && f.name && wantName !== f.name) {
+    return `焦点是「${f.name}」，你要写的是「${wantName}」——先回到他的会话再操作`
+  }
+  return null
+}
 function requireChatScope(state, job, jobId) {
   const sc = state.chatScope
   if (!sc || !sc.at) {
@@ -424,9 +530,13 @@ const WORKFLOW_DEFAULT = {
   ],
   reply: [
     { key: 'scope', action: '确认岗位筛选', text: '沟通页左上角职位下拉选成本岗位，否则会张冠李戴' },
-    { key: 'chatScope', action: 'chatScope 声明作用域', text: 'pageJobLabel 填页面上显示的职位名，对不上会被拒' },
+    { key: 'unread', action: '点「未读」筛选', text: '进「新招呼」或「沟通中」后，列表上方必须点开「未读」——不开筛选看到的是全部会话，会把处理过的人再处理一遍，也会把「没有未读」误读成「已清空」' },
+    { key: 'tabGuard', action: 'tabGuard 声明作用域', text: 'tab=newGreet|chatting + pageJobLabel=页面显示的职位名 + unreadActive=true；岗位对不上或没开未读都会被拒' },
     { key: 'sweep', action: '扫会话列表', text: '看预览判断最后一句谁说的：以[已读]/[送达]开头=我发的' },
     { key: 'open', action: '打开会话读上下文', text: '只读不点，先弄清对方说到哪一步' },
+    { key: 'precheck', action: 'precheck 初步预判（省时间的关键一步）', text: '卡片或会话里就能判死的（应届/毕业不满3年/学历不够/期望城市明显不符/明确不接受外包）→ precheck(source=card|chat, verdict=reject, evidence=依据原文) 后直接 reject，**不要点开在线简历**。看起来符合 → precheck(verdict=pass)，才进入下一步' },
+    { key: 'resume', action: '点开在线简历', text: '仅对 precheck(pass) 的人：点会话右上角「在线简历」，读工作经历与项目原文——卡片摘要和对方自述都不算看过简历' },
+    { key: 'screen', action: 'screen 登记', text: 'resumeRead=true，projects 写简历原文（≥20字），decision=greet/skip/reject；没有这条记录，任何非 new 的 stage 都写不进台账' },
     { key: 'judge', action: '按回话规则判断', text: '该不该回、回哪一步的模板；拿不准就不回，记备注交人工' },
     { key: 'reply', action: '逐字输入并发送', text: '单条 ≤{replyMaxChars} 字，禁止整段粘贴' },
     { key: 'log', action: 'log 记录要点', text: '毕业年份/学信网/工作年限/期望薪资/可面试时间/项目匹配点' },
@@ -528,6 +638,8 @@ function defaultState() {
     activeJobId: job.id,
     // recruit=只浏览+打招呼；reply=只处理回话；all=混合
     mode: 'recruit',
+    // P0-1 焦点锁：当前正在操作哪个候选人的会话（null=未启用；启用后强制校验）
+    focus: null,
     jobs: { [job.id]: job },
     // v2.2：每个岗位各自记住上次用的模式，切岗位时恢复（state.mode 恒等于当前岗位的模式）
     jobModes: { [job.id]: 'recruit' },
@@ -538,6 +650,10 @@ function defaultState() {
     screens: [],
     screenIndex: {},
     chatScope: null,
+    tabScope: null,
+    // v2.34.0：三层证据。prechecks 记「卡片/会话级」的初步判定，
+    // 只有 verdict=pass 的人值得花时间去点开在线简历。
+    prechecks: {},
     flowContext: null,
     inbox: {},
   }
@@ -1042,6 +1158,13 @@ function migrate(parsed) {
     screens: Array.isArray(parsed.screens) ? parsed.screens : [],
     screenIndex: parsed.screenIndex && typeof parsed.screenIndex === 'object' ? parsed.screenIndex : {},
     chatScope: parsed.chatScope && typeof parsed.chatScope === 'object' ? parsed.chatScope : null,
+    // v2.33.1（㊿ 补丁）：tabScope 必须持久化。
+    // 2.33.0 只把它放进了内存，没进这个重建白名单——
+    // 于是任何一次 readDisk（reload / 进程重启 / 别的动作触发重读）
+    // 都会把它悄悄丢掉，表现是「明明刚 tabGuard 过，下一个 screen 却报没声明作用域」。
+    // 实测 2026-10-31 13:27：赵女士的 screen 就是这么被拒的。
+    tabScope: parsed.tabScope && typeof parsed.tabScope === 'object' ? parsed.tabScope : null,
+    prechecks: parsed.prechecks && typeof parsed.prechecks === 'object' ? parsed.prechecks : {},
     flowContext: parsed.flowContext && typeof parsed.flowContext === 'object' ? parsed.flowContext : null,
     inbox: parsed.inbox && typeof parsed.inbox === 'object' ? parsed.inbox : {},
     blacklist: Array.isArray(parsed.blacklist) ? parsed.blacklist : [],
@@ -2346,6 +2469,90 @@ function defaultSop() {
           '一句话：**先筛岗位、再 chatScope、再回话**；换岗位就重新 chatScope。',
         ].join('\n'),
       },
+      {
+        id: 'tabGuard',
+        title: '回话前置之二：进 tab 前必须确认「未读」筛选已打开（硬闸门）',
+        builtin: true,
+        body: [
+          '「新招呼」「沟通中」都是**混着已读和未读**的列表。不点「未读」就往下处理，会有两个后果：',
+          '',
+          '1. **重复处理**——已经回过的人再回一遍',
+          '2. **误判清空**——这个 tab 显示「暂无牛人」时，你分不清是「真的没有未读」还是「你没开未读筛选」',
+          '',
+          '固定顺序：',
+          '1. 进「沟通」页 → 左上角职位下拉选成本岗位（当前应为 **{jobTitle}**）。',
+          '2. 点列表上方的 **「未读」** 筛选（不是「全部」）。',
+          '3. 调 `tabGuard(tab="newGreet|chatting", pageJobLabel=「页面上显示的职位名」, unreadActive=true)`。',
+          '   - 岗位对不上 → 直接报错，要求先切筛选。',
+          '   - `unreadActive` 不是 true → 直接报错，要求先点「未读」。',
+          '   - 默认 {chatScopeTtlMin} 分钟后过期。',
+          '',
+          '**空列表 ≠ 已清空**：`tabGuard` 通过后如果列表仍是空，才可以判定「这个 tab 的未读是 0」。',
+          '没通过 tabGuard 之前看到的空，一律当作「没开筛选」。',
+        ].join('\n'),
+      },
+      {
+        id: 'threeTier',
+        title: '三层证据：先用便宜的方式筛，只对可能符合的人花贵的方式',
+        builtin: true,
+        body: [
+          '**核心原则：不要对注定淘汰的人花时间去点开在线简历。**',
+          '',
+          '判断一个人分三层，成本从低到高：',
+          '',
+          '**第一层 · 卡片信息**（0 成本）',
+          '看列表卡片/会话头部就能读到的：年龄、工作年限、学历、毕业院校与年份、期望职位、期望薪资、期望城市。',
+          '其中一条明显不符 → precheck(source="card", verdict="reject", rejectReason=..., evidence="卡片原文")，然后直接 reject，**不要点开在线简历**。',
+          '',
+          '**第二层 · 会话记录**（0 成本）',
+          '对方在聊天里说过的话：毕业年份、专业、学信网、主攻方向、明确说「外包/外派不考虑」、期望城市。',
+          '已经能判死 → `precheck(source="chat", verdict="reject", ...)`，同样不必开简历。',
+          '',
+          '**第三层 · 在线简历**（高成本，30 秒+）',
+          '**只有前两层都过得去**，才 `precheck(verdict="pass")` → 点「在线简历」→ 读工作经历与项目原文 → `screen(...)`。',
+          '简历里符合 → 继续下一步（发话术/要简历）；不符合 → `screen(decision="reject")` 收工，不看第二遍。',
+          '',
+          '**三道记录各自的作用**：',
+          '| 记录 | 证明什么 | 能否直接淘汰 |',
+          '|---|---|---|',
+          '| `precheck(source=card/chat, verdict=reject)` | 「按卡片/会话信息就该淘汰」 | ✅ 可以，不必开简历 |',
+          '| `screen(decision=reject, projects=...)` | 「看过一手简历后淘汰」 | ✅ 可以 |',
+          '| `precheck(verdict=pass)` | 「初步符合，值得花时间看简历」 | ❌ 不能据此判定 |',
+          '',
+          '**已评估过的人不会再被重复处理**：`precheck` 和 `screen` 都落在台账里，',
+          '下一轮扫同一个 tab 时，`nextInbox` / `sweep` 会按 stage 把已淘汰的过滤掉，',
+          '不会再让你为一个已经判过的人重新打开简历。',
+        ].join('\n'),
+      },
+      {
+        id: 'resumeGate',
+        title: '第三层：看过在线简历才能做出可执行判断（硬闸门）',
+        builtin: true,
+        body: [
+          '**这一节只管第三层。** 前两层见「三层证据」一节：卡片/会话能判死的，不必走到这里。',
+          '',
+          '**但对**走出第三层的人**来说，卡片摘要和候选人自述都不算看过简历。**',
+          '',
+          '原来这道闸门只挂在「打招呼」上，于是从沟通页进来的人可以完全不看简历就判定，',
+          '实测一晚处理 20+ 人，在线简历一份没点开——判断依据只有卡片（年龄/年限/学历/期望城市）',
+          '和对方发的那段话。而对方那段话是**自述**，只会说对自己有利的。',
+          '',
+          '**现在任何非 `new` 的 stage 都要求先有 `screen` 记录**（`resumeRead=true` 且 `projects` ≥20 字）：',
+          '',
+          '- `upsert stage=qualified / resume_requested / resume_received / interview_* / rejected / stale / pending`',
+          '- `reject`（淘汰也是判断）',
+          '- `view`（语义就是「看过但不招呼」，那就必须真看过）',
+          '- `batch` 里每一条都逐条校验',
+          '',
+          '固定顺序：',
+          '1. 打开会话 → 点右上角 **「在线简历」**（不是只看卡片）。',
+          '2. 读工作经历和项目原文，能滑就往下滑。',
+          '3. 调 `screen(name, company, resumeRead=true, projects="简历原文≥20字", decision=greet/skip/reject)`。',
+          '4. **之后**才允许发话术、要简历、改 stage。',
+          '',
+          '没通过这道闸门时，`upsert` 会直接返回错误并说明该怎么做——不会静默写入。',
+        ].join('\n'),
+      },
     ],
     lessons: [],
     pending: [],
@@ -2671,16 +2878,16 @@ const FLOW_DEFINITIONS = {
   newGreet: {
     title: '新招呼·未读',
     mode: 'reply',
-    steps: ['沟通页确认岗位并 chatScope', 'observe 记录当前未读名单', '预览能判定的批量记录，信息不足才打开在线简历', 'screen 后只回当前阶段第一句', 'log 更新同一人的记录'],
-    allowedActions: ['flow', 'chatScope', 'observe', 'view', 'screen', 'evaluate', 'batch', 'log', 'reject'],
-    forbidden: ['给所有人都要简历', '已读会话重复回复', '推荐牛人打招呼', '搜索人才库', '热搜联系 Ta'],
+    steps: ['沟通页确认岗位并点「未读」筛选', 'tabGuard(tab=newGreet, unreadActive=true) 声明作用域', 'observe 记录当前未读名单', '逐个打开会话 → 点「在线简历」读完项目原文', 'screen 登记（resumeRead=true, projects≥20字）', 'screen 后才允许按阶段回话或要简历', 'log 更新同一人的记录'],
+    allowedActions: ['flow', 'chatScope', 'tabGuard', 'observe', 'view', 'screen', 'evaluate', 'batch', 'log', 'reject'],
+    forbidden: ['没看在线简历就判定或要简历', '未开「未读」筛选就往下处理', '给所有人都要简历', '已读会话重复回复', '推荐牛人打招呼', '搜索人才库', '热搜联系 Ta'],
   },
   chatting: {
     title: '沟通中·未读',
     mode: 'reply',
-    steps: ['沟通页确认岗位并 chatScope', 'observe 只看候选人最后发言的未读会话', '按附件/硬项信息/礼貌收尾/明确拒绝分类', '必要时回当前阶段模板', 'log 更新阶段；无新信息则 noReply 不再重开'],
-    allowedActions: ['flow', 'chatScope', 'observe', 'view', 'screen', 'log', 'upsert', 'reject'],
-    forbidden: ['催促没有新消息的人', '重复回客气话', '主动给面试时间', '承诺答复时间', '索要微信手机号'],
+    steps: ['沟通页确认岗位并点「未读」筛选', 'tabGuard(tab=chatting, unreadActive=true) 声明作用域', 'observe 只看候选人最后发言的未读会话', '逐个打开会话 → 点「在线简历」读完项目原文', 'screen 登记（resumeRead=true, projects≥20字）', 'screen 后才允许按阶段回话', 'log 更新阶段；无新信息则 noReply 不再重开'],
+    allowedActions: ['flow', 'chatScope', 'tabGuard', 'observe', 'view', 'screen', 'log', 'upsert', 'reject'],
+    forbidden: ['没看在线简历就判定或要简历', '未开「未读」筛选就往下处理', '催促没有新消息的人', '重复回客气话', '主动给面试时间', '承诺答复时间', '索要微信手机号'],
   },
   resume: {
     title: '已获取简历',
@@ -3429,6 +3636,11 @@ async function runAction(args) {
       }
       const { job } = resolveJob(state, jobId)
       const bossId = args.bossId || `${String(args.name || '').trim()}|${String(args.company || '-').trim()}`
+      // v2.33.0（㊾）：view 的语义是「看过但不招呼」，那就必须真的看过在线简历。
+      // 原来 view 直接落 stale，不查 screen —— 于是「没看简历、只是扫了眼卡片就标成看过」
+      // 也能过，stale 这个状态就失去了它的证明力。
+      const screenErr = requireScreenForStage(state, jobId, { ...args, bossId }, 'stale')
+      if (screenErr) return { ok: false, error: screenErr }
       state.candidates = state.candidates || {}
       const ckey = candKey(jobId, bossId)
       let cand = state.candidates[ckey]
@@ -3563,7 +3775,16 @@ async function runAction(args) {
       const todayCount = counterFor(state, jobId, today)
       const now = Date.now()
       const dailyDone = todayCount.greets
-      const dailyTarget = c.greetQuotaPerDay
+      // v2.32.2（㊵）：这里原来直接取 c.greetQuotaPerDay（80），
+      // 而 greetPaceError（真正拦人的那个）用的是 Math.min(greetQuotaPerDay, humanize.dailyHardCap)。
+      // 两个函数对「今日额度」的定义不一致，导致 dailyHardCap=40 时：
+      //   - markGreet 第 41 条会被拒（正确）
+      //   - pace 却认为 40 < 80，返回「本轮打满，休息 20 分钟开下一轮」（误导）
+      // 于是 Agent 等 20 分钟 → 点第 41 条 → markGreet 报错，但按钮已经点了、
+      // 消息已经发出去了（先发后记），正好踩中 ㉟ 描述的「招呼已发·记账被拦」。
+      // 修法：pace 也用同一套 min() 计算，让查询与闸门结论一致。
+      const hardCap = Number(humanizeOf(c).dailyHardCap) || Number.MAX_SAFE_INTEGER
+      const dailyTarget = Math.min(Number(c.greetQuotaPerDay) || hardCap, hardCap)
       const roundTarget = c.roundGreetSize || 15
       const browseTarget = c.browseBeforeGreetMin || 1
       const browseDone = todayCount.browses
@@ -3664,15 +3885,36 @@ async function runAction(args) {
         dwell: { minSec: c.browseDwellMinSec || 15, maxSec: c.browseDwellMaxSec || 60 },
         // v2.31.7：验证码冷却期间不能建议「点开简历看」—— 那本身也是页面操作。
         // 冷却的含义是完全不碰页面，不是「只看不点」。
+        // v2.32.2（㊵）：额度打满时也必须是「停」，不能落到默认的「可发这一条」。
+        // 原来 dailyTarget 取的是 80（未受 dailyHardCap 约束），所以永远走不到这里；
+        // 修完 dailyTarget 之后这条分支才真正生效 —— 两处必须一起改，否则会反过来
+        // 变成「pace 说打满了，但 nextAction 还叫你发」。
         nextAction:
           verifyLeft > 0
             ? `完全不要操作页面（不点、不滚、不输入、不切标签）。等 ${Math.ceil(verifyLeft / 60)} 分钟到 ${new Date(todayCount.verifyUntil).toLocaleTimeString()}，验证码必须人工过。`
-            : waitSec > 0
-              ? `先不动，等 ${waitSec} 秒（期间可以点开 1 张卡的在线简历看，但不要发招呼）`
-              : '可发这一条：点开 1 张卡在线简历读完 → 判定匹配 → 点「打招呼」（落点随机偏移 ±15px，不要总打同一像素）→ 立刻 markGreet 1 → 回 pace 查下一次间隔',
+            : state.mode === 'reply'
+              // v2.32.2（㊻）：上面 step 已经说了「回话模式，只进沟通处理回话」，
+              // 但 nextAction 的链条里没有 reply 这一支，waitSec=0 时会一路落到
+              // 最后的「可发这一条：点开卡…点打招呼」—— 两个字段互相打脸。
+              // 实测 2.32.1：mode=reply 时 pace 返回
+              //   step: 「回话模式」：只进「沟通」处理回话…
+              //   nextAction: 可发这一条：点开 1 张卡在线简历读完 → … → 点「打招呼」
+              // v2.33.0（㊿）：把 tabGuard 和「先看在线简历」写进回话模式的下一步。
+              // 原来只写「点未读」，但没有任何地方校验未读筛选真的开了；
+              // 也没有强制「先点开在线简历再判定」——实测一晚 20+ 人全凭自述判完。
+              ? '进「沟通」页处理回话：① 左上角职位下拉选本岗位 → ② 点「未读」筛选 → ③ tabGuard(tab, pageJobLabel, unreadActive=true) → ④ 逐个打开会话只读不点 → ⑤ **precheck 预判**：卡片或会话里就能判死（应届/毕业不满3年/学历不够/期望城市明显不符/明确不接受外包）→ precheck(verdict="reject") 后直接 reject，**不要点开在线简历**；看起来符合 → precheck(verdict="pass") → ⑥ 才点右上角「在线简历」读完项目原文 → ⑦ screen(resumeRead=true, projects≥20字, decision) → ⑧ 符合才发话术/要简历（先过 checkReply）→ ⑨ log 记要点'
+              : dailyDone >= dailyTarget
+                ? `今日已达安全上限 ${dailyTarget} 条，不要再打任何招呼（再打会被 markGreet 拒绝，但消息已经发出去了）。可以 mode(reply) 去处理沟通页，或明天 0 点额度重置后继续。`
+                : waitSec > 0
+                  ? `先不动，等 ${waitSec} 秒（期间可以点开 1 张卡的在线简历看，但不要发招呼）`
+                  : '可发这一条：点开 1 张卡在线简历读完 → 判定匹配 → 点「打招呼」（落点随机偏移 ±15px，不要总打同一像素）→ 立刻 markGreet 1 → 回 pace 查下一次间隔',
         hint: verifyLeft > 0
           ? `验证码冷却中，${Math.ceil(verifyLeft / 60)} 分钟后（${new Date(todayCount.verifyUntil).toLocaleTimeString()}）再动`
-          : waitSec > 0 ? `等待 ${waitSec} 秒（约 ${Math.max(1, Math.round(waitSec / 60))} 分钟）后再动手` : '立即执行',
+          : state.mode === 'reply'
+            ? '回话模式：不打招呼'
+            : dailyDone >= dailyTarget
+              ? `今日收工（${dailyDone}/${dailyTarget}），明天 0 点重置`
+              : waitSec > 0 ? `等待 ${waitSec} 秒（约 ${Math.max(1, Math.round(waitSec / 60))} 分钟）后再动手` : '立即执行',
       }
     })
   }
@@ -3721,6 +3963,8 @@ async function runAction(args) {
     return withState((state) => {
       const { job } = resolveJob(state, jobId)
       const c = job.criteria
+      const focusErr = requireFocus(state, jobId, { name: args.name, bossId: args.bossId })
+      if (focusErr) return { ok: false, code: 'FOCUS_MISMATCH', error: focusErr }
       const todayCount = counterFor(state, jobId, today)
       const requested = Math.floor(Number(args.count) || 1)
       if (requested > 1) {
@@ -3816,6 +4060,61 @@ async function runAction(args) {
     })
   }
 
+  // P0-1 焦点锁：声明「我此刻打开的是谁的会话」
+  if (action === 'focus') {
+    return withState((state) => {
+      const { job } = resolveJob(state, jobId)
+      if (!job) return { ok: false, error: '岗位不存在' }
+      const bossId = args.bossId || (args.name ? `${args.name}|${args.company || '-'}` : '')
+      if (!bossId) return { ok: false, error: 'focus 需要 name（或 bossId）' }
+      const c = state.candidates[candKey(jobId, bossId)]
+      state.focus = {
+        jobId,
+        bossId,
+        name: args.name || String(bossId).split('|')[0],
+        seq: c ? c.seq : null,
+        at: nowISO(),
+      }
+      return {
+        ok: true,
+        focus: state.focus,
+        hint: '现在去点开他的会话；聊天头部姓名应与 focus.name 一致，再回话/再记账',
+      }
+    })
+  }
+
+  // P1-5 预检：点之前先问一句「现在能不能动」，避免先发后拒
+  if (action === 'canAct') {
+    return readState((state) => {
+      const { job } = resolveJob(state, jobId)
+      if (!job) return { ok: false, error: '岗位不存在' }
+      const kind = String(args.kind || 'greet')
+      const pickSec = (msg) => {
+        const s = String(msg)
+        const m = s.match(/还需等\s*(\d+)\s*秒/) || s.match(/再等\s*(\d+)\s*秒/)
+        return m ? Number(m[1]) : 0
+      }
+      if (kind === 'greet') {
+        if (state.mode === 'reply') {
+          return { ok: true, allowed: false, code: 'MODE_REPLY', retryAtSec: 0, message: '回话模式不记打招呼；先 mode(recruit)' }
+        }
+        const paceError = greetPaceError(state, jobId, today, Date.now())
+        if (paceError) {
+          return { ok: true, allowed: false, code: 'PACE', retryAtSec: pickSec(paceError), message: paceError }
+        }
+        const g = requireScreenForGreet(state, jobId, args)
+        if (g) {
+          return { ok: true, allowed: false, code: 'SCREEN', retryAtSec: pickSec(g), message: g }
+        }
+        return { ok: true, allowed: true, code: 'OK', retryAtSec: 0 }
+      }
+      const fErr = requireFocus(state, jobId, { name: args.name, bossId: args.bossId })
+      if (fErr) {
+        return { ok: true, allowed: false, code: 'FOCUS_MISMATCH', retryAtSec: 0, message: fErr }
+      }
+      return { ok: true, allowed: true, code: 'OK', retryAtSec: 0 }
+    })
+  }
   if (action === 'evaluate') {
     return readState((state) => {
       const { job } = resolveJob(state, jobId)
@@ -3855,7 +4154,12 @@ async function runAction(args) {
     if (!bossId) return { ok: false, error: '缺少 bossId 或 name' }
     return withState((state) => {
       const { job } = resolveJob(state, jobId)
-      // v2.10.0：直接写 greeted 也必须先有 screen
+      // v2.33.0（㊾）：任何非 new 的 stage 都必须先有 screen 记录。
+      // 原来只有 stage=greeted 走 requireScreenForGreet，qualified / rejected / resume_*
+      // 全都不查——于是「从沟通页不看简历直接判定」这条路是通的，实测一晚 20+ 人全这样处理的。
+      const screenErr = requireScreenForStage(state, jobId, { ...args, bossId }, args.stage)
+      if (screenErr) return { ok: false, error: screenErr }
+      // v2.10.0：直接写 greeted 还必须满足更严的条件（decision=greet + 看满 20 秒 + 未过期）
       if (args.stage === 'greeted') {
         const g = requireScreenForGreet(state, jobId, { ...args, bossId })
         if (g) return { ok: false, error: g }
@@ -4027,6 +4331,10 @@ async function runAction(args) {
       const at = nowISO()
       const dir = args.dir === 'out' ? 'out' : 'in'
       // v2.16.0：要回话（dir=out）之前，必须点开过这个人的在线简历并 screen 登记过
+      if (dir === 'out') {
+        const focusErrOut = requireFocus(state, jobId, { name: args.name, bossId })
+        if (focusErrOut) return { ok: false, code: 'FOCUS_MISMATCH', error: focusErrOut }
+      }
       if (dir === 'out' && args.force !== true) {
         const sc = findScreen(state, jobId, bossId, true)
         if (!sc) {
@@ -4123,6 +4431,11 @@ async function runAction(args) {
       const key = candKey(jobId, bossId)
       const cand = state.candidates[key]
       if (!cand) return { ok: false, error: `当前岗位台账里没有 ${bossId}` }
+      // v2.33.0（㊾）：淘汰也是判断，也必须先看过在线简历。
+      // 原来 reject 直接改 stage，完全绕开 screen 闸门，
+      // 于是「按卡片上的期望城市/毕业年份直接淘汰」是合法路径 —— 而卡片数据不等于简历。
+      const screenErr = requireScreenForStage(state, jobId, { ...args, bossId }, 'rejected')
+      if (screenErr) return { ok: false, error: screenErr }
       cand.stage = 'rejected'
       cand.rejectReason = reason || 'other'
       cand.updatedAt = nowISO()
@@ -4359,6 +4672,14 @@ async function runAction(args) {
   if (action === 'screen') {
     return withState((state) => {
       const { job } = resolveJob(state, jobId)
+      // v2.33.0（㊿）：回话模式下，screen 之前必须先 tabGuard 声明「哪个 tab + 未读已开 + 是本岗位」。
+      // 没有这道校验时，tabGuard 只是个软提示：Agent 完全可以跳过它直接 screen，
+      // 于是「有没有真的点开未读筛选」这件事依然无从验证。
+      // 招聘模式（recruit）走推荐页，没有 tab 和未读筛选，不拦。
+      if (state.mode === 'reply') {
+        const tabErr = requireTabScope(state, job, jobId)
+        if (tabErr) return { ok: false, error: tabErr }
+      }
       const bossId = args.bossId || (args.name ? `${args.name}|${args.company || '-'}` : '')
       if (!bossId) return { ok: false, error: 'screen 需要 name + company（或 bossId）' }
       if (args.resumeRead !== true) {
@@ -4431,6 +4752,25 @@ async function runAction(args) {
         screenDecision: rec.decision,
         updatedAt: now,
       }
+      // v2.32.2（㊺）：上面那行 `stage: existing.stage || 'new'` 是问题根源 ——
+      // screen 判了 skip/reject 之后 stage 永远停在 new，于是：
+      //   · nextInbox 把这些人当成「还没看过」反复推回来（action=open_and_screen）
+      //   · stats 的 new 计数虚高
+      //   · 与 view 的语义冲突（同样「看过不打」，view 落 stale、screen 落 new）
+      // 实测：陈女士(华讯互通)/刘德军/余佳/刘丽/田馨悦 5 人都 screen 过 skip/reject，
+      // nextInbox 里 stage 仍是 new。
+      // 修法：decision 明确时落到对应终态；greet 保持 new 不动，等 markGreet 推进。
+      if (!merged.stage || merged.stage === 'new') {
+        if (rec.decision === 'reject') merged.stage = 'rejected'
+        else if (rec.decision === 'skip') merged.stage = 'stale'
+      }
+      // decision=reject 时同时记淘汰原因，否则 stats 的淘汰分布统计不到这批人
+      if (rec.decision === 'reject' && merged.stage === 'rejected') {
+        const REASONS = ['city', 'edu', 'year', 'direction', 'salary', 'freshgrad', 'other']
+        merged.rejectReason = REASONS.includes(args.rejectReason)
+          ? args.rejectReason
+          : (existing.rejectReason || 'other')
+      }
       // v2.31.0：screen 顺带写入的基本信息（只在传了的时候覆盖，没传就保留原值）
       if (rec.edu) merged.edu = rec.edu
       if (rec.gradYear) merged.gradYear = rec.gradYear
@@ -4501,6 +4841,144 @@ async function runAction(args) {
     })
   }
 
+  // v2.33.0（㊿）：进 tab 前的双前置——职位是本岗位 + 「未读」筛选已打开。
+  // 目标要求的顺序是「点沟通中 → 点未读 → 处理未读 → 再处理新招呼」，
+  // 但原来没有任何地方校验「未读」这个筛选到底开没开，
+  // 于是「沟通中显示空」可以被误读成「未读已清空」，而实际只是没开筛选。
+  if (action === 'tabGuard') {
+    return withState((state) => {
+      const { job } = resolveJob(state, jobId)
+      const label = String(args.pageJobLabel || '').trim()
+      if (!label) return { ok: false, error: 'tabGuard 需要 pageJobLabel：沟通页左上角职位下拉里显示的那个名字' }
+      const norm = (s) => String(s || '').replace(/[（）()【】\s]/g, '')
+      const wantLabels = [job.criteria.jobTitle, job.name].filter(Boolean).map(norm).filter(Boolean)
+      const a = norm(label)
+      const hit = a && wantLabels.some((b) => a.indexOf(b) >= 0 || b.indexOf(a) >= 0)
+      if (!hit) {
+        return {
+          ok: false,
+          error: `沟通页选的是「${label}」，与当前岗位「${job.criteria.jobTitle || job.name}」（${job.name}）不一致。先切岗位筛选，别张冠李戴`,
+        }
+      }
+      const tab = String(args.tab || '').trim()
+      const validTabs = ['newGreet', 'chatting', 'resume', 'interview']
+      if (!validTabs.includes(tab)) {
+        return { ok: false, error: 'tabGuard 需要 tab，取值：newGreet / chatting / resume / interview', valid: validTabs }
+      }
+      if (args.unreadActive !== true) {
+        return {
+          ok: false,
+          error: `进「${tab}」之前必须先点开「未读」筛选（unreadActive=true）。` +
+            `没开未读筛选时看到的是全部会话，会把已经处理过的人再处理一遍，` +
+            `也会把「这个 tab 没有未读」误读成「未读已经清空」。点完「未读」再调一次 tabGuard`,
+        }
+      }
+      state.tabScope = { jobId, label, tab, unreadActive: true, at: nowISO() }
+      // tabGuard 本身就确认了岗位筛选，顺手刷新 chatScope，省一次调用
+      state.chatScope = { jobId, label, at: nowISO() }
+      return {
+        ok: true,
+        jobId,
+        tab,
+        tabScope: state.tabScope,
+        next:
+          `作用域已确认（岗位对得上 + 未读筛选已开）。现在逐条处理「${tab}」里的未读候选人。` +
+          `每个人的固定顺序：点开他 → 点右上角「在线简历」→ 读工作经历和项目原文 → ` +
+          `screen(resumeRead=true, projects="简历原文≥20字", decision=greet/skip/reject) → ` +
+          `之后才允许 upsert / 发话术 / 要简历。没 screen 记录的人，任何 stage 都写不进去。`,
+      }
+    })
+  }
+
+  // v2.34.0：三层证据的中间层——卡片/会话级初步判定。
+  // 目的：把「看一眼就知道不行」和「得点开简历才知道」分开，别在注定淘汰的人身上花 30 秒。
+  // 规则：
+  //   · verdict=reject → 允许直接 reject / upsert stage=rejected，不必开在线简历
+  //   · verdict=pass   → 允许（并且应该）去点开在线简历做 screen
+  // evidence 必须写清「判死的依据原文」（卡片上的字 / 对方说的话），台账可抽查。
+  if (action === 'precheck') {
+    return withState((state) => {
+      const { job } = resolveJob(state, jobId)
+      const bossId = args.bossId || (args.name ? `${args.name}|${args.company || '-'}` : '')
+      if (!bossId) return { ok: false, error: 'precheck 需要 name + company（或 bossId）' }
+      const source = String(args.source || '').trim()
+      if (!['card', 'chat'].includes(source)) {
+        return { ok: false, error: 'precheck 需要 source，取值：card（卡片信息）/ chat（会话记录/对方自述）', valid: ['card', 'chat'] }
+      }
+      const verdict = String(args.verdict || '').trim()
+      if (!['pass', 'reject'].includes(verdict)) {
+        return { ok: false, error: 'precheck 需要 verdict，取值：pass（初步符合，可以去看在线简历）/ reject（已可判死，不必看简历）', valid: ['pass', 'reject'] }
+      }
+      const evidence = String(args.evidence || args.note || '').trim()
+      if (evidence.length < 8) {
+        return {
+          ok: false,
+          error: `evidence 只有 ${evidence.length} 字，太短。把判定的依据原文写进来（卡片上的字 / 对方说的话，≥8字），否则事后无法抽查这条判定对不对`,
+        }
+      }
+      const reason = String(args.rejectReason || '').trim()
+      if (verdict === 'reject' && reason && !Object.keys(REJECT_REASON_LABEL).includes(reason)) {
+        return { ok: false, error: `rejectReason 只能是 ${Object.keys(REJECT_REASON_LABEL).join(' / ')}` }
+      }
+      state.prechecks = state.prechecks && typeof state.prechecks === 'object' ? state.prechecks : {}
+      const rec = {
+        jobId,
+        bossId,
+        name: String(args.name || ''),
+        company: String(args.company || ''),
+        source,
+        verdict,
+        rejectReason: verdict === 'reject' ? (reason || 'other') : '',
+        evidence,
+        at: nowISO(),
+      }
+      state.prechecks[bossId] = rec
+      // v2.34.1：precheck 时台账里还没有这个人 → 自动建一条 new 记录。
+      // 起因：第一次实战时 precheck 成功、紧接着 reject 报「台账里没有 suki|星海星美」，
+      // 于是「卡片判死 → 淘汰」被迫走成 precheck → upsert → reject 三步。
+      // 卡片判死本来就是为了省事，多一步就是多一次调用，这里直接建好。
+      let autoCreated = false
+      // v2.34.2：台账 key 是 `${jobId}::${bossId}`，不是裸 bossId。
+      // 2.34.1 用了裸 bossId，记录建出来了却挂在没有岗位前缀的 key 下，
+      // 紧接着 reject 报「台账里没有」——autoCreated 返回 true 但 reject 找不到，原因就在这。
+      const candKey = `${jobId}::${bossId}`
+      if (!state.candidates[candKey]) {
+        const maxSeq = Object.values(state.candidates).reduce((m, c) => Math.max(m, Number(c && c.seq) || 0), 0)
+        const now = nowISO()
+        state.candidates[candKey] = {
+          jobId,
+          bossId,
+          name: String(args.name || ''),
+          company: String(args.company || ''),
+          edu: '', gradYear: null, xuexinSelf: '未说', xuexinVerify: 'pending',
+          workYears: null, skills: [], project: '',
+          expectSalary: '', expectSalaryMinK: null, expectCity: '', expectPosition: '',
+          phone: '', company2: '', interviewTime: '', interviewWindow: '',
+          interviewLocation: '', interviewMode: '', interviewContact: '', interviewPhone: '',
+          email: '', school: '',
+          stage: 'new', starred: false, rejectReason: '',
+          matchGaps: [], matchHits: [],
+          note: `precheck(${source}) 预判：${evidence}`,
+          keyInfo: '', dialogLog: [],
+          firstSeenAt: now, greetedAt: '', repliedAt: '', resumeAt: '', interviewAt: '',
+          updatedAt: now,
+          seq: maxSeq + 1,
+        }
+        autoCreated = true
+      }
+      return {
+        ok: true,
+        jobId,
+        precheck: rec,
+        autoCreated,
+        next:
+          verdict === 'reject'
+            ? `初步判定已记（依据：${source === 'card' ? '卡片' : '会话'}）${autoCreated ? '，台账记录已自动建立' : ''}。可以直接 reject(name, company, rejectReason=...) 淘汰，不必点开在线简历。`
+            : `初步判定通过（依据：${source === 'card' ? '卡片' : '会话'}）${autoCreated ? '，台账记录已自动建立' : ''}。现在点开这个人的「在线简历」，读工作经历与项目原文，再 screen(resumeRead=true, projects≥20字, decision=greet/skip/reject)。`,
+      }
+    })
+  }
+
   // v2.20.0：按沟通页 tab 的真实流转语义，直接给出「这一屏该处理谁、下一步做什么」
   if (action === 'nextInbox') {
     return readState((state) => {
@@ -4558,9 +5036,9 @@ async function runAction(args) {
         queue: rows.slice(0, Math.max(1, Math.min(100, Number(args.limit) || 30))),
         returned: Math.min(rows.length, Math.max(1, Math.min(100, Number(args.limit) || 30))),
         hint: tab === "newGreet"
-          ? '新招呼＝主动来信但我们还没看过的人。先用列表预览把明显不符的（应届/1-2年/跨行/外地）批量 reject 掉，只对剩下的点开在线简历。'
+          ? '新招呼＝主动来信但我们还没看过的人。先点「未读」筛选 → tabGuard → 再逐个打开：每个人都要先点「在线简历」读完项目原文、screen 登记，才允许判定或要简历。卡片预览只能用来排序，不能当判定依据。'
           : tab === "chatting"
-            ? '沟通中＝我已发过消息的人。只看 action=reply 的（他最后说话）；action=wait 的一律不点开，省时间。'
+            ? '沟通中＝我已发过消息的人。先点「未读」筛选 → tabGuard → 只看 action=reply 的（他最后说话）；action=wait 的一律不点开，省时间。判定前同样要先看在线简历。'
             : '已获取简历＝已点同意接收的人。优先补 fill_contact 的（缺联系方式），其余等人工定档。',
       }
     })
@@ -5498,7 +5976,7 @@ export function apply(ctx) {
             type: 'string',
             enum: [
               'pace', 'upsert', 'batch', 'sweep', 'interview', 'sop', 'list', 'next', 'seen', 'export', 'config',
-              'markGreet', 'markBrowse', 'markVerify', 'log', 'checkReply', 'screen', 'chatScope', 'clickPlan', 'readPlan', 'chatTabs', 'nextInbox', 'claim', 'backfill', 'flow', 'observe', 'completeGreet', 'reload', 'backup-export', 'backup-import', 'jobs', 'selectJob', 'job',
+              'markGreet', 'markBrowse', 'markVerify', 'log', 'checkReply', 'screen', 'precheck', 'chatScope', 'tabGuard', 'clickPlan', 'readPlan', 'chatTabs', 'nextInbox', 'claim', 'backfill', 'flow', 'observe', 'completeGreet', 'reload', 'backup-export', 'backup-import', 'jobs', 'selectJob', 'job',
               'createJob', 'deleteJob', 'mode', 'check', 'view', 'star', 'reject', 'stats', 'evaluate', 'audit',
             ],
             description:
