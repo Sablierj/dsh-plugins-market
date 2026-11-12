@@ -1,4 +1,5 @@
-# 按 docs/plugin-contract.md §1：name 用绝对路径，profile 把它装到哪儿都能解析到插件自己。
+# 按 docs/plugin-contract.md §1：name 用相对路径（`./index.js`），跟着这个 patch
+# 文件所在目录解析，profile 把它装到哪儿都能解析到插件自己（见 amazon-ops 的实测注释）。
 - insert:
     - id: pdd-workbench
-      name: 'D:/deepseek-harness-h/workspace/dsh-plugins/pdd-workbench/index.js'
+      name: './index.js'

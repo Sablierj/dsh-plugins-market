@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-plugin-pdd-workbench",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "type": "module",
   "description": "拼多多工作台：待发货/已发货订单导出到本机 SQLite（订单号、物流单号、商品、数量、店铺、收货人、手机号、地址），并与闲鱼订单智能核对、生成批量发货模板。",
