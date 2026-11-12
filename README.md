@@ -2,6 +2,15 @@
 
 > 由私有仓 `Sablierj/dsh-plugins` 的 `scripts/market/publish.mjs` 生成，**不要手改**。
 
+## 只读判据
+
+```bash
+git remote get-url origin   # 含 `-market` ⇒ 这是只读快照仓
+```
+
+命中就**不要在这里改代码**：本仓除 `.git` 外的内容每次发布都会被删掉重铺。
+改插件去私有仓 `Sablierj/dsh-plugins`，用 `node scripts/release.mjs <plugin> <spec> "说明"` 发布。
+
 ## 装法（在另一台机器上）
 
 1. DSH → **插件页 → 「发现」→ 索引源**，填：
@@ -17,7 +26,7 @@
 
 | 分支/目录 | 是什么 |
 | --- | --- |
-| `main` | 索引 `index.json` + `market.config.json` + `icons/` + `scripts/market/` |
+| `main` | 索引 `index.json` + `market.config.json` + `icons/` + `scripts/market/` + 只读说明 `AGENTS.md` |
 | `pkg/<插件>` | **该插件的包本体，`package.json` 就在这个分支的根上** |
 
 ## 为什么插件在 `pkg/<名字>` 分支的根上，而不是 `main` 的子目录里
@@ -32,7 +41,7 @@
 
 ## 版本历史
 
-- `state.json` 里每个插件是 `versions[]`（每版 `{version, commit, timestamp}`），索引列出**全部历史版本**，DSH 的版本列表会把它们都显示出来。
+- `state.json` 里每个插件是 `versions[]`（每版 `{version, commit, timestamp, contentHash}`），索引列出**全部历史版本**，DSH 的版本列表会把它们都显示出来。
 - 每次发布给该版本打 tag：`<插件>-v<版本>`。分支可能被 force-push 覆盖，**tag 才是旧版本的锚点**；没有 tag 的旧 commit 迟早被 GC，索引里记着也装不回来。
 - 回滚 = 装旧版本的 commit：`git+<url>.git#<旧 sha>`。
 
@@ -44,3 +53,4 @@
 ## 红线
 
 本仓只放可公开的插件代码：不得有 API key、密码、内网地址、候选人/客户数据、截图。
+发布前由 `scripts/market/lib-redline.mjs` 在发布面上机器扫描，命中且未登记例外直接拒绝。

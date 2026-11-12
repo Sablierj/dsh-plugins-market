@@ -11,7 +11,8 @@
         {
           "version": "0.1.0",
           "commit": "22396f4ae1044de136d6d2ceca6b8ad359827144",
-          "timestamp": 1793962307
+          "timestamp": 1793962307,
+          "contentHash": "885122175bec5d95e3c8d3f9ad9ac045a4035bd5aaf13496f7ee1c334fb2955a"
         }
       ]
     },
@@ -19,9 +20,9 @@
       "path": "boss-recruit",
       "branch": "pkg/boss-recruit",
       "name": "@local/dsh-plugin-boss-recruit",
-      "version": "2.32.1",
-      "commit": "db0177fa236c36f1af52b7a0a246966aea23cddc",
-      "timestamp": 1793962339,
+      "version": "2.34.2",
+      "commit": "09c335577092fcb5c0bc224f6185c72a43caa8ca",
+      "timestamp": 1794448657,
       "versions": [
         {
           "version": "2.30.2",
@@ -32,6 +33,12 @@
           "version": "2.32.1",
           "commit": "db0177fa236c36f1af52b7a0a246966aea23cddc",
           "timestamp": 1793962339
+        },
+        {
+          "version": "2.34.2",
+          "commit": "09c335577092fcb5c0bc224f6185c72a43caa8ca",
+          "timestamp": 1794448657,
+          "contentHash": "e9646a09e3ab6cd08a30731d06188b2cce4306b2ef57de31ffe0ec1be706b0ca"
         }
       ]
     },
@@ -46,7 +53,8 @@
         {
           "version": "1.0.1",
           "commit": "6cdb95ab5ba0b26f9457a73059f01edab7eb3bbf",
-          "timestamp": 1793064341
+          "timestamp": 1793064341,
+          "contentHash": "4fdaacd0dde48d7f8e3609a781686305f9d8eb1779f6130320abf4e3611c595a"
         }
       ]
     },
@@ -55,13 +63,14 @@
       "branch": "pkg/dsh-session-model-bridge",
       "name": "@local/dsh-session-model-bridge",
       "version": "0.1.0",
-      "commit": "05216b536398749821aac421edfd7b0f59b0e628",
-      "timestamp": 1793063681,
+      "commit": "7bbdaafd4128208a674422b4ebd8038a6b0d7c39",
+      "timestamp": 1794448684,
       "versions": [
         {
           "version": "0.1.0",
-          "commit": "05216b536398749821aac421edfd7b0f59b0e628",
-          "timestamp": 1793063681
+          "commit": "7bbdaafd4128208a674422b4ebd8038a6b0d7c39",
+          "timestamp": 1794448684,
+          "contentHash": "fe4575c75d9c18ba14d9cb1b5df7b9a3952b53cee27a98cef4dacce1cda7e389"
         }
       ]
     },
@@ -76,7 +85,8 @@
         {
           "version": "0.2.0",
           "commit": "96d39a0ef6648d841eca81c7abdb7ad5f37c60ef",
-          "timestamp": 1793063691
+          "timestamp": 1793063691,
+          "contentHash": "45fc42fcf0aee7812c6ea26873cff2589dcbe18340ef9584a3d20a7460875374"
         }
       ]
     },
@@ -91,7 +101,8 @@
         {
           "version": "0.1.0",
           "commit": "ec710fc95f282da2bcba0f9fb51292279264a4ee",
-          "timestamp": 1793019821
+          "timestamp": 1793019821,
+          "contentHash": "7470364d2282d02cd64f0b7d7fdc0ec0be8608b33c5d373500c0ba875de5eefb"
         }
       ]
     },
@@ -106,7 +117,8 @@
         {
           "version": "0.1.0",
           "commit": "f2e3bbd745e4d6526b113a2fcb881efd76a7f439",
-          "timestamp": 1793063710
+          "timestamp": 1793063710,
+          "contentHash": "f489bb562bffade216b7e08f26f9bbadc2760b5fe16126dc5906553d25971d1e"
         }
       ]
     },
@@ -121,7 +133,8 @@
         {
           "version": "1.0.0",
           "commit": "d7cc85a1438f3e3784d80e8a1bfafdaa095d8c34",
-          "timestamp": 1793063719
+          "timestamp": 1793063719,
+          "contentHash": "a4c6e26b6aee5227c016a0c520175c0e6419bc1660fb265d9e3e2933f0591463"
         }
       ]
     },
@@ -136,7 +149,8 @@
         {
           "version": "1.0.0",
           "commit": "ebfb55a9b635e39bcfc76d1f9966546ee2d6d083",
-          "timestamp": 1793063728
+          "timestamp": 1793063728,
+          "contentHash": "002ec20f40400acebdb8132f9aa3d2045759d429a1aa24504f3d934a0467b247"
         }
       ]
     },
@@ -144,14 +158,20 @@
       "path": "wechat-session-bind",
       "branch": "pkg/wechat-session-bind",
       "name": "@local/wechat-session-bind",
-      "version": "1.0.0",
-      "commit": "7df2f695db64e8bf900763cb08ac367eec91ee7a",
-      "timestamp": 1793063737,
+      "version": "1.0.1",
+      "commit": "0cd500f17eab3aaec33e6e66b27ceb7f7c1a3481",
+      "timestamp": 1794448767,
       "versions": [
         {
           "version": "1.0.0",
           "commit": "7df2f695db64e8bf900763cb08ac367eec91ee7a",
           "timestamp": 1793063737
+        },
+        {
+          "version": "1.0.1",
+          "commit": "0cd500f17eab3aaec33e6e66b27ceb7f7c1a3481",
+          "timestamp": 1794448767,
+          "contentHash": "d02a4ebbaf3c89dc647ac498d6962d271cd40a9fcba1bdffac3906d702b2e33d"
         }
       ]
     },
@@ -159,14 +179,20 @@
       "path": "memory-bridge",
       "branch": "pkg/memory-bridge",
       "name": "@local/dsh-plugin-memory-bridge",
-      "version": "0.10.1",
-      "commit": "89caa3825dbb9c20262dda018602f8ba6785bd1f",
-      "timestamp": 1793962609,
+      "version": "0.11.1",
+      "commit": "9b274b9f9b8621bcfa1bd82d736ac92769a5d448",
+      "timestamp": 1794448781,
       "versions": [
         {
           "version": "0.10.1",
           "commit": "89caa3825dbb9c20262dda018602f8ba6785bd1f",
           "timestamp": 1793962609
+        },
+        {
+          "version": "0.11.1",
+          "commit": "9b274b9f9b8621bcfa1bd82d736ac92769a5d448",
+          "timestamp": 1794448781,
+          "contentHash": "f9e5ff21015eb9a68427bf4f364050bf8fea4ac15cd15bb681058f6908fc1cff"
         }
       ]
     },
@@ -174,14 +200,20 @@
       "path": "sif-ops",
       "branch": "pkg/sif-ops",
       "name": "dsh-plugin-sif-ops",
-      "version": "0.1.0",
-      "commit": "0e47589ecae8574c85877f8c19e6b783aad95aee",
-      "timestamp": 1793962629,
+      "version": "0.1.1",
+      "commit": "aaadce28ebf7171eb3c5f3775141230004a810f1",
+      "timestamp": 1794448795,
       "versions": [
         {
           "version": "0.1.0",
           "commit": "0e47589ecae8574c85877f8c19e6b783aad95aee",
           "timestamp": 1793962629
+        },
+        {
+          "version": "0.1.1",
+          "commit": "aaadce28ebf7171eb3c5f3775141230004a810f1",
+          "timestamp": 1794448795,
+          "contentHash": "60f38514e0493f540e2287a9de5c6078f8049cf55532736423150296605016e2"
         }
       ]
     },
@@ -189,14 +221,20 @@
       "path": "pdd-workbench",
       "branch": "pkg/pdd-workbench",
       "name": "@local/dsh-plugin-pdd-workbench",
-      "version": "0.8.0",
-      "commit": "e53d14ef6efa6bcab5c2f492b8e5e2ec32fb4367",
-      "timestamp": 1793962649,
+      "version": "0.8.1",
+      "commit": "66efc9ef40a4c0a46b115de457df5869ee6339f1",
+      "timestamp": 1794448822,
       "versions": [
         {
           "version": "0.8.0",
           "commit": "e53d14ef6efa6bcab5c2f492b8e5e2ec32fb4367",
           "timestamp": 1793962649
+        },
+        {
+          "version": "0.8.1",
+          "commit": "66efc9ef40a4c0a46b115de457df5869ee6339f1",
+          "timestamp": 1794448822,
+          "contentHash": "a302ad872f7737381795373f8191f3cbf0f80341c1abd4ced62fdb92ec7f2f6d"
         }
       ]
     }

@@ -151,7 +151,7 @@
           "local-data"
         ],
         "sortKeys": {
-          "updated": 1793962339
+          "updated": 1794448657
         }
       },
       "versions": [
@@ -171,6 +171,15 @@
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
             "commit": "db0177fa236c36f1af52b7a0a246966aea23cddc"
+          }
+        },
+        {
+          "version": "2.34.2",
+          "publishTimestamp": 1794448657,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "09c335577092fcb5c0bc224f6185c72a43caa8ca"
           }
         }
       ]
@@ -243,17 +252,17 @@
           "local-data"
         ],
         "sortKeys": {
-          "updated": 1793063681
+          "updated": 1794448684
         }
       },
       "versions": [
         {
           "version": "0.1.0",
-          "publishTimestamp": 1793063681,
+          "publishTimestamp": 1794448684,
           "source": {
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
-            "commit": "05216b536398749821aac421edfd7b0f59b0e628"
+            "commit": "7bbdaafd4128208a674422b4ebd8038a6b0d7c39"
           }
         }
       ]
@@ -495,7 +504,7 @@
           "local-data"
         ],
         "sortKeys": {
-          "updated": 1793063737
+          "updated": 1794448767
         }
       },
       "versions": [
@@ -506,6 +515,15 @@
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
             "commit": "7df2f695db64e8bf900763cb08ac367eec91ee7a"
+          }
+        },
+        {
+          "version": "1.0.1",
+          "publishTimestamp": 1794448767,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "0cd500f17eab3aaec33e6e66b27ceb7f7c1a3481"
           }
         }
       ]
@@ -539,7 +557,7 @@
           "local-data"
         ],
         "sortKeys": {
-          "updated": 1793962609
+          "updated": 1794448781
         }
       },
       "versions": [
@@ -550,6 +568,15 @@
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
             "commit": "89caa3825dbb9c20262dda018602f8ba6785bd1f"
+          }
+        },
+        {
+          "version": "0.11.1",
+          "publishTimestamp": 1794448781,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "9b274b9f9b8621bcfa1bd82d736ac92769a5d448"
           }
         }
       ]
@@ -583,7 +610,7 @@
           "local-data"
         ],
         "sortKeys": {
-          "updated": 1793962629
+          "updated": 1794448795
         }
       },
       "versions": [
@@ -594,6 +621,15 @@
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
             "commit": "0e47589ecae8574c85877f8c19e6b783aad95aee"
+          }
+        },
+        {
+          "version": "0.1.1",
+          "publishTimestamp": 1794448795,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "aaadce28ebf7171eb3c5f3775141230004a810f1"
           }
         }
       ]
@@ -627,7 +663,7 @@
           "local-data"
         ],
         "sortKeys": {
-          "updated": 1793962649
+          "updated": 1794448822
         }
       },
       "versions": [
@@ -638,6 +674,15 @@
             "type": "git",
             "url": "https://github.com/Sablierj/dsh-plugins-market",
             "commit": "e53d14ef6efa6bcab5c2f492b8e5e2ec32fb4367"
+          }
+        },
+        {
+          "version": "0.8.1",
+          "publishTimestamp": 1794448822,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Sablierj/dsh-plugins-market",
+            "commit": "66efc9ef40a4c0a46b115de457df5869ee6339f1"
           }
         }
       ]
