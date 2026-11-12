@@ -1,6 +1,6 @@
 {
   "name": "@local/wechat-session-bind",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Bind WeChat to the current session from a session header button",

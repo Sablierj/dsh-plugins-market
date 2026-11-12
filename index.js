@@ -6,9 +6,16 @@
  * dsh-wechat-workbench's pointer store at it and reloading the workbench row
  * so its in-memory pointer (loaded once at construction) re-reads the file.
  *
- * Effectiveness is verified, not assumed: the workbench stamps
- * build.json.appliedAt every time its apply runs, so liveness is "did that
- * stamp move after the pointer write" — not a self-report from the reload.
+ * Effectiveness is verified, not assumed — and the proof has to be something
+ * that still exists. dsh-wechat-workbench 0.1.2 writes no apply stamp (its
+ * build.json stopped being updated when 0.1.2 replaced the locally patched
+ * build on 2026-11-06), so reading build.json.appliedAt made every bind report
+ * 「未生效」 forever even when the reload worked. The proof is now the
+ * loader's own facts:
+ *   1. setPluginEnabled() returns application === 'applied' (not a self-report),
+ *   2. the row is enabled and fiberPhase === 'active' afterwards,
+ *   3. that verdict is recorded in bind-state.json, so the next page load can
+ *      answer 「已生效」 without guessing.
  *
  * The operation is deliberately user-only: it routes the user's WeChat
  * messages to a session, which is an authority decision — no agent tool.
@@ -23,7 +30,7 @@ export const inject = ['connection', 'pluginManager']
 const STORE_DIR = path.join(os.homedir(), '.dsh', 'wechat-workbench')
 const POINTERS_FILE = path.join(STORE_DIR, 'pointers.json')
 const DRIVEN_FILE = path.join(STORE_DIR, 'driven-sessions.json')
-const BUILD_FILE = path.join(STORE_DIR, 'build.json')
+const BIND_FILE = path.join(STORE_DIR, 'bind-state.json')
 /* The workbench row is addressed as `include:<id>` in this profile, but bare
    ids exist in other compositions — resolve at run time, fall back through
    the known forms. (A bare-id miss used to make the reload silently no-op:
@@ -53,66 +60,81 @@ function writeJson (file, value) {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`)
 }
 
-/** The workbench's apply stamp: the only observable proof its pointer cache re-read. */
-function appliedStamp () {
-  return String(readJson(BUILD_FILE, {})?.appliedAt ?? '')
-}
-
-function sleep (ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
 /**
- * Resolve the workbench's PluginEntryId at run time: exact name first, then
- * any row whose id ends with the row id. Falls back through known forms.
+ * Resolve the workbench's PluginEntryId at run time. PluginInfo carries
+ * `entryId` / `moduleName` (there is no `id` or `name` field), so match those
+ * and fall back to the known literal forms.
  */
 async function resolveRowId (pm) {
   try {
     const rows = await pm.listPlugins?.() ?? []
-    const hit = rows.find(r => r?.name === 'dsh-wechat-workbench')
-      ?? rows.find(r => String(r?.id ?? '').endsWith('wechat-workbench'))
-    if (hit?.id) return String(hit.id)
+    const hit = rows.find(r => r?.moduleName === 'dsh-wechat-workbench')
+      ?? rows.find(r => String(r?.entryId ?? '').endsWith('wechat-workbench'))
+    if (hit?.entryId) return String(hit.entryId)
   } catch { /* fall back */ }
   return null
 }
 
+/** Is that row loaded right now? The loader's fiber phase, not our belief. */
+async function rowIsActive (pm, rowId) {
+  if (!rowId) return false
+  try {
+    const rows = await pm.listPlugins?.() ?? []
+    const row = rows.find(r => String(r?.entryId ?? '') === rowId)
+    return row !== undefined && row.enabled !== false && row.fiberPhase === 'active'
+  } catch {
+    return false
+  }
+}
+
 /**
- * Disable→enable the workbench row and wait for its apply stamp to move.
- * Returns { live, rowId, note } — live is false whenever the stamp did not
- * move, whatever the toggle calls claimed.
+ * Disable→enable the workbench row. Returns { live, rowId, application, note }:
+ * live is true only when the loader reported `applied` for both calls *and*
+ * the row is active afterwards.
  */
 async function reloadWorkbench (ctx) {
   const pm = ctx.get('pluginManager')
   if (!pm?.setPluginEnabled) {
-    return { live: false, rowId: null, note: 'pluginManager 不可用；重启 DSH 后生效' }
+    return { live: false, rowId: null, application: null, note: 'pluginManager 不可用；重启 DSH 后生效' }
   }
   const resolved = await resolveRowId(pm)
   const candidates = [resolved, ...WORKBENCH_ROW_FALLBACKS].filter((v, i, a) => v && a.indexOf(v) === i)
-  const before = appliedStamp()
   let rowId = null
+  let application = null
   let lastError = null
   for (const id of candidates) {
     try {
       const off = await pm.setPluginEnabled(id, false)
       const on = await pm.setPluginEnabled(id, true)
-      const refused = [off, on].some(r => r && (r.ok === false || r.applied === false))
-      if (!refused) { rowId = id; break }
-      lastError = `行 ${id} 拒绝了禁启`
+      const refused = [off, on].find(r => r && r.application !== 'applied')
+      if (refused) {
+        lastError = `行 ${id} 的应用结果 ${String(refused.application)}`
+        continue
+      }
+      rowId = id
+      application = String(on?.application ?? off?.application ?? 'applied')
+      break
     } catch (error) {
       lastError = String(error?.message ?? error)
     }
   }
   if (rowId === null) {
-    return { live: false, rowId: null, note: `文件已写入，但重载未打中任何 workbench 行（${lastError ?? '未知'}）；重启 DSH 后生效` }
-  }
-  /* Poll the stamp: apply may land a beat after the enable call returns. */
-  for (let i = 0; i < 10; i++) {
-    await sleep(300)
-    if (appliedStamp() !== before && appliedStamp() !== '') {
-      return { live: true, rowId, note: `已重载 ${rowId}（apply ${appliedStamp()}），绑定即时生效` }
+    return {
+      live: false,
+      rowId: null,
+      application: null,
+      note: `文件已写入，但重载未打中任何 workbench 行（${lastError ?? '未知'}）；重启 DSH 后生效`,
     }
   }
-  return { live: false, rowId, note: `文件已写入，${rowId} 禁启已执行但 apply 标记未刷新；重启 DSH 后生效` }
+  if (!await rowIsActive(pm, rowId)) {
+    return {
+      live: false,
+      rowId,
+      application,
+      note: `文件已写入，${rowId} 已重载（loader: ${application}）但当前不是 active；重启 DSH 后生效`,
+    }
+  }
+  return { live: true, rowId, application, note: `已重载 ${rowId}（loader: ${application}），绑定即时生效` }
 }
 
 /**
@@ -139,20 +161,21 @@ export function apply (ctx, config) {
     headers: { 'content-type': 'application/json' },
   })
 
-  /* Live means: the workbench's apply stamp is at least as new as the pointer
-     file — its cache demonstrably saw the write. Anything weaker would print
-     「已绑定」 over a stale router. */
-  const isLive = () => {
-    try {
-      const stamp = Date.parse(appliedStamp())
-      const written = fs.statSync(POINTERS_FILE).mtimeMs
-      return Number.isFinite(stamp) && stamp + 1000 >= written
-    } catch {
-      return false
-    }
+  const pointersMtime = () => {
+    try { return fs.statSync(POINTERS_FILE).mtimeMs } catch { return 0 }
   }
 
-  const stateOf = (sessionId) => {
+  /* Live means: a bind was recorded for this very session, the pointer has not
+     been touched since that record, and the workbench row is loaded now.
+     Anything weaker would print 「已绑定」 over a stale router. */
+  const isLive = async (sessionId) => {
+    const record = readJson(BIND_FILE, null)
+    if (!record || record.sessionId !== sessionId) return false
+    if (!(Number(record.at) + 1000 >= pointersMtime())) return false
+    return rowIsActive(ctx.get('pluginManager'), record.rowId)
+  }
+
+  const stateOf = async (sessionId) => {
     const pointers = readJson(POINTERS_FILE, {})
     const driven = readJson(DRIVEN_FILE, [])
     const conversations = Object.entries(pointers).map(([id, p]) => ({
@@ -170,8 +193,8 @@ export function apply (ctx, config) {
       conversations,
       driven: Array.isArray(driven) ? driven : [],
       bound,
-      live: bound ? isLive() : null,
-      appliedAt: appliedStamp() || null,
+      live: bound ? await isLive(sessionId) : null,
+      bindRecord: readJson(BIND_FILE, null),
     }
   }
 
@@ -183,12 +206,12 @@ export function apply (ctx, config) {
       try {
         if (request.method === 'GET') {
           const url = new URL(request.url ?? '/', 'http://x')
-          return json(stateOf(url.searchParams.get('sessionId')))
+          return json(await stateOf(url.searchParams.get('sessionId')))
         }
         let body = {}
         try { body = await request.json() } catch { /* empty body: refuse below */ }
         const action = String(body?.action ?? '')
-        if (action === 'state') return json(stateOf(body?.sessionId))
+        if (action === 'state') return json(await stateOf(body?.sessionId))
         if (action !== 'bind') return json({ ok: false, error: `unknown action: ${action || '(empty)'}` }, 400)
 
         const sessionId = String(body?.sessionId ?? '').trim()
@@ -222,9 +245,18 @@ export function apply (ctx, config) {
         writeJson(DRIVEN_FILE, driven)
 
         /* The workbench caches pointers in memory (loaded once in its apply),
-           so a file write alone is not live. Reload the row and verify the
-           stamp moved; only then claim 生效. */
+           so a file write alone is not live. Reload the row and record the
+           loader's verdict; only then claim 生效. */
         const reload = await reloadWorkbench(ctx)
+        if (reload.live) {
+          writeJson(BIND_FILE, {
+            sessionId,
+            at: Date.now(),
+            rowId: reload.rowId,
+            application: reload.application,
+            note: reload.note,
+          })
+        }
 
         return json({
           ok: true,
@@ -236,6 +268,7 @@ export function apply (ctx, config) {
           driven: driven.length,
           backups: [pointerBackup, drivenBackup].filter(Boolean),
           rowId: reload.rowId,
+          application: reload.application,
           note: reload.note,
         })
       } catch (error) {
